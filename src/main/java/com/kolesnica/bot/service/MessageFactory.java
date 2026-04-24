@@ -82,9 +82,7 @@ public final class MessageFactory {
     }
 
     public List<List<ObjectNode>> adminNavigationRows() {
-        List<List<ObjectNode>> rows = new ArrayList<>();
-        rows.add(List.of(callback("⬅️ Назад", "NAV:BACK")));
-        return rows;
+        return List.of();
     }
 
     public List<ObjectNode> navigationRow() {

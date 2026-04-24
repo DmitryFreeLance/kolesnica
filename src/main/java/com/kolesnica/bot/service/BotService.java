@@ -39,6 +39,7 @@ public final class BotService {
     private static final String SC_OPERATOR = "operator";
     private static final String SC_ADMIN = "admin";
     private static final int USERS_PAGE_SIZE = 20;
+    private static final int BRANCH_NUMBER_ROW_MAX = 4;
 
     private static final Pattern PHONE_PATTERN = Pattern.compile("^[+0-9()\\-\\s]{6,20}$");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
@@ -1874,7 +1875,7 @@ public final class BotService {
                     .append('\n');
 
             currentRow.add(messages.callback(String.valueOf(i), payloadPrefix + branch.id()));
-            if (currentRow.size() == 8) {
+            if (currentRow.size() == BRANCH_NUMBER_ROW_MAX) {
                 rows.add(List.copyOf(currentRow));
                 currentRow.clear();
             }
