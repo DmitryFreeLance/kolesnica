@@ -26,7 +26,7 @@ public final class AppConfig {
     public static AppConfig fromEnv() {
         String token = getRequired("BOT_TOKEN");
         String baseUrl = getOrDefault("MAX_API_BASE_URL", "https://platform-api.max.ru");
-        int timeout = parseInt("BOT_POLL_TIMEOUT", 1);
+        int timeout = parseInt("BOT_POLL_TIMEOUT", 25);
         int limit = parseInt("BOT_POLL_LIMIT", 1000);
         String dbPath = getOrDefault("BOT_DB_PATH", "./data/bot.db");
 

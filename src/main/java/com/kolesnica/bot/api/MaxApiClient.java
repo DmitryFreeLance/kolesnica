@@ -8,12 +8,14 @@ import com.kolesnica.bot.model.ChatTarget;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
+import okhttp3.Protocol;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,9 +42,13 @@ public final class MaxApiClient {
         this.pollTimeout = pollTimeout;
         this.pollLimit = pollLimit;
         this.mapper = mapper;
+        long readTimeoutSeconds = Math.max(60L, pollTimeout + 45L);
         this.http = new OkHttpClient.Builder()
                 .connectTimeout(Duration.ofSeconds(20))
-                .readTimeout(Duration.ofSeconds(Math.max(30, pollTimeout + 10L)))
+                .readTimeout(Duration.ofSeconds(readTimeoutSeconds))
+                .writeTimeout(Duration.ofSeconds(30))
+                .callTimeout(Duration.ofSeconds(readTimeoutSeconds + 10L))
+                .protocols(List.of(Protocol.HTTP_1_1))
                 .build();
     }
 
@@ -76,6 +82,8 @@ public final class MaxApiClient {
 
             Long nextMarker = root.path("marker").isNull() ? null : root.path("marker").asLong();
             return new UpdateBatch(list, nextMarker);
+        } catch (SocketTimeoutException e) {
+            return new UpdateBatch(List.of(), marker);
         }
     }
 

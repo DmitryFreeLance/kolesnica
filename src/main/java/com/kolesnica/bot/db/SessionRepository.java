@@ -74,6 +74,19 @@ public final class SessionRepository {
         save(session);
     }
 
+    public Long findChatIdByUserId(long userId) throws SQLException {
+        String sql = "SELECT chat_id FROM user_sessions WHERE user_id = ? AND chat_id IS NOT NULL";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setLong(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getLong("chat_id");
+                }
+                return null;
+            }
+        }
+    }
+
     private String toJson(Object obj) {
         try {
             return mapper.writeValueAsString(obj);
