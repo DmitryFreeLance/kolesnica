@@ -15,14 +15,28 @@ public final class MessageFactory {
     }
 
     public ObjectNode message(String text, List<List<ObjectNode>> rows, boolean withNavigation) {
+        return buildMessage(text, flattenRows(rows), withNavigation ? userNavigationRows() : List.of());
+    }
+
+    public ObjectNode messageKeepRows(String text, List<List<ObjectNode>> rows, boolean withNavigation) {
+        return buildMessage(text, rows, withNavigation ? userNavigationRows() : List.of());
+    }
+
+    public ObjectNode adminMessage(String text, List<List<ObjectNode>> rows, boolean withNavigation) {
+        return buildMessage(text, flattenRows(rows), withNavigation ? adminNavigationRows() : List.of());
+    }
+
+    public ObjectNode adminMessageKeepRows(String text, List<List<ObjectNode>> rows, boolean withNavigation) {
+        return buildMessage(text, rows, withNavigation ? adminNavigationRows() : List.of());
+    }
+
+    private ObjectNode buildMessage(String text, List<List<ObjectNode>> contentRows, List<List<ObjectNode>> navRows) {
         ObjectNode body = mapper.createObjectNode();
         body.put("text", text);
         body.put("format", "markdown");
 
-        List<List<ObjectNode>> allRows = new ArrayList<>(rows);
-        if (withNavigation) {
-            allRows.add(navigationRow());
-        }
+        List<List<ObjectNode>> allRows = new ArrayList<>(contentRows);
+        allRows.addAll(navRows);
 
         if (!allRows.isEmpty()) {
             ObjectNode attachment = mapper.createObjectNode();
@@ -47,10 +61,36 @@ public final class MessageFactory {
         return body;
     }
 
+    private List<List<ObjectNode>> flattenRows(List<List<ObjectNode>> rows) {
+        List<List<ObjectNode>> flattened = new ArrayList<>();
+        for (List<ObjectNode> row : rows) {
+            for (ObjectNode button : row) {
+                flattened.add(List.of(button));
+            }
+        }
+        return flattened;
+    }
+
+    public List<List<ObjectNode>> userNavigationRows() {
+        List<List<ObjectNode>> rows = new ArrayList<>();
+        rows.add(List.of(
+                callback("⬅️ Назад", "NAV:BACK"),
+                callback("👩‍💼 Оператор", "NAV:OPERATOR")
+        ));
+        rows.add(List.of(callback("🏠 Главное меню", "NAV:MENU")));
+        return rows;
+    }
+
+    public List<List<ObjectNode>> adminNavigationRows() {
+        List<List<ObjectNode>> rows = new ArrayList<>();
+        rows.add(List.of(callback("⬅️ Назад", "NAV:BACK")));
+        rows.add(List.of(callback("🛠️ Админ панель", "NAV:ADMIN_HOME")));
+        return rows;
+    }
+
     public List<ObjectNode> navigationRow() {
         List<ObjectNode> row = new ArrayList<>();
         row.add(callback("⬅️ Назад", "NAV:BACK"));
-        row.add(callback("🏠 Главное меню", "NAV:MENU"));
         row.add(callback("👩‍💼 Оператор", "NAV:OPERATOR"));
         return row;
     }

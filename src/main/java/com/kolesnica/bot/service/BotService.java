@@ -252,6 +252,7 @@ public final class BotService {
                 sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
                 sendMainMenu(target, false);
             }
+            case "NAV:ADMIN_HOME" -> openAdminPanel(session.userId(), session, target);
             case "NAV:BACK" -> goBack(session, target);
             case "NAV:OPERATOR" -> {
                 sendOperatorContact(target);
@@ -271,6 +272,10 @@ public final class BotService {
             case "ACT:OPERATOR" -> {
                 sendOperatorContact(target);
                 sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
+            }
+            case "ACT:USER_MENU" -> {
+                sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
+                sendMainMenu(target, false);
             }
             case "ACT:ADMIN" -> openAdminPanel(session.userId(), session, target);
             case "ACT:RESUME" -> renderCurrentStep(session, target);
@@ -408,7 +413,7 @@ public final class BotService {
                 : "👋 Добро пожаловать в *Колесницу*.\nПодберём филиал, цену и запись за пару шагов.";
 
         List<List<ObjectNode>> rows = List.of(
-                MessageFactory.row(messages.callback("🛞 Записаться на сезонную переобувку", "ACT:BOOK")),
+                MessageFactory.row(messages.callback("✅ Записаться на сезонную переобувку", "ACT:BOOK")),
                 MessageFactory.row(messages.callback("📍 Найти ближайший филиал", "ACT:BRANCH")),
                 MessageFactory.row(messages.callback("💸 Узнать цену", "ACT:PRICE")),
                 MessageFactory.row(messages.callback("📦 Хранение шин", "ACT:STORAGE")),
@@ -473,11 +478,7 @@ public final class BotService {
                 String city = session.state().path("city").asText("");
                 String district = session.state().path("district").asText("");
                 List<Branch> list = branches.findByFilters(city.isBlank() ? null : city, district.isBlank() ? null : district, null);
-                List<List<ObjectNode>> rows = new ArrayList<>();
-                for (Branch b : list) {
-                    rows.add(MessageFactory.row(messages.callback(branchButtonTitle(b), "BOOK:BRANCH_ID:" + b.id())));
-                }
-                sendMessage(target, "🏢 Выберите филиал из списка:", rows, true);
+                sendBranchPickerWithNumbers(target, "🏢 Выберите филиал из списка:", list, "BOOK:BRANCH_ID:");
             }
             case "BOOK_DATE" -> sendMessage(target,
                     "📅 Когда удобно приехать?",
@@ -799,11 +800,7 @@ public final class BotService {
                 String city = session.state().path("city").asText("");
                 String district = session.state().path("district").asText("");
                 List<Branch> list = branches.findByFilters(city.isBlank() ? null : city, district.isBlank() ? null : district, null);
-                List<List<ObjectNode>> rows = new ArrayList<>();
-                for (Branch b : list) {
-                    rows.add(MessageFactory.row(messages.callback(branchButtonTitle(b), "BR:ID:" + b.id())));
-                }
-                sendMessage(target, "🏢 Выберите филиал:", rows, true);
+                sendBranchPickerWithNumbers(target, "🏢 Выберите филиал:", list, "BR:ID:");
             }
             case "BR_GEO_WAIT" -> sendMessage(target,
                     "📡 Отправьте геолокацию кнопкой ниже,\nи я покажу ближайший филиал.",
@@ -817,12 +814,11 @@ public final class BotService {
                     return;
                 }
                 Branch b = br.get();
-                String tel = "tel:" + normalizePhoneForUrl(b.phone());
                 sendMessage(target,
                         b.cardText(),
                         List.of(
-                                MessageFactory.row(messages.callback("🛞 Записаться сюда", "BR:CARD:BOOK:" + b.id())),
-                                MessageFactory.row(messages.link("📞 Позвонить", tel)),
+                                MessageFactory.row(messages.callback("✅ Записаться сюда", "BR:CARD:BOOK:" + b.id())),
+                                MessageFactory.row(messages.callback("📞 Позвонить", "BR:CARD:CALL:" + b.id())),
                                 MessageFactory.row(messages.callback("🔁 Другой филиал", "BR:CARD:OTHER"), messages.callback("🏠 Меню", "NAV:MENU"))
                         ),
                         true);
@@ -893,6 +889,16 @@ public final class BotService {
                     renderBookingStep(jump, target);
                     return true;
                 }
+                if (payload.startsWith("BR:CARD:CALL:")) {
+                    long id = Long.parseLong(payload.substring("BR:CARD:CALL:".length()));
+                    Optional<Branch> branch = branches.findById(id);
+                    if (branch.isPresent()) {
+                        sendMessage(target, "📞 Телефон филиала: " + branch.get().phone(), List.of(), true);
+                    } else {
+                        sendMessage(target, "😔 Не удалось найти телефон филиала.", List.of(), true);
+                    }
+                    return true;
+                }
                 return false;
             }
         }
@@ -922,7 +928,7 @@ public final class BotService {
             case "PRICE_SERVICE" -> sendMessage(target,
                     "💸 Выберите услугу:\nпосчитаю ориентир " + "*от ... ₽*",
                     List.of(
-                            MessageFactory.row(messages.callback("🛞 Переобувка", "PRICE:SERVICE:Переобувка"), messages.callback("🧰 Ремонт", "PRICE:SERVICE:Ремонт")),
+                            MessageFactory.row(messages.callback("🚗 Переобувка", "PRICE:SERVICE:Переобувка"), messages.callback("🧰 Ремонт", "PRICE:SERVICE:Ремонт")),
                             MessageFactory.row(messages.callback("⚖️ Балансировка", "PRICE:SERVICE:Балансировка"), messages.callback("🔧 Правка", "PRICE:SERVICE:Правка")),
                             MessageFactory.row(messages.callback("📦 Хранение", "PRICE:SERVICE:Хранение"))
                     ), true);
@@ -942,7 +948,7 @@ public final class BotService {
             case "PRICE_EXTRA" -> sendMessage(target,
                     "🧩 Дополнительные параметры:",
                     List.of(
-                            MessageFactory.row(messages.callback("🚫 Без допов", "PRICE:EXTRA:Нет"), messages.callback("🛞 RunFlat", "PRICE:EXTRA:RunFlat")),
+                            MessageFactory.row(messages.callback("🚫 Без допов", "PRICE:EXTRA:Нет"), messages.callback("⚙️ RunFlat", "PRICE:EXTRA:RunFlat")),
                             MessageFactory.row(messages.callback("📡 TPMS", "PRICE:EXTRA:Датчики"), messages.callback("🏎️ Низкий профиль", "PRICE:EXTRA:Низкий профиль"))
                     ), true);
             default -> sendMainMenu(target, true);
@@ -970,7 +976,7 @@ public final class BotService {
             sendMessage(target,
                     "💸 Ориентировочная стоимость: *от " + price + " ₽*\nТочную сумму уточним после осмотра.",
                     List.of(
-                            MessageFactory.row(messages.callback("🛞 Записаться", "ACT:BOOK"), messages.callback("📍 Филиалы", "ACT:BRANCH")),
+                            MessageFactory.row(messages.callback("✅ Записаться", "ACT:BOOK"), messages.callback("📍 Филиалы", "ACT:BRANCH")),
                             MessageFactory.row(messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"), messages.callback("🏠 Меню", "NAV:MENU"))
                     ),
                     true);
@@ -993,7 +999,7 @@ public final class BotService {
 
     private void renderStorageStep(UserSession session, ChatTarget target) throws SQLException, IOException {
         switch (session.step()) {
-            case "ST_ACTION" -> sendMessage(target,
+            case "ST_ACTION" -> sendMessageKeepRows(target,
                     "📦 Хранение шин\nВыберите действие:",
                     List.of(
                             MessageFactory.row(messages.callback("📘 Условия", "ST:ACT:CONDITIONS"), messages.callback("💸 Стоимость", "ST:ACT:PRICE")),
@@ -1020,11 +1026,7 @@ public final class BotService {
             case "ST_DROP_BRANCH" -> {
                 String city = session.state().path("drop_city").asText("");
                 List<Branch> list = branches.findByFilters(city.isBlank() ? null : city, null, null);
-                List<List<ObjectNode>> rows = new ArrayList<>();
-                for (Branch b : list) {
-                    rows.add(MessageFactory.row(messages.callback(branchButtonTitle(b), "ST:DBRANCH:" + b.id())));
-                }
-                sendMessage(target, "🏢 Выберите филиал для сдачи:", rows, true);
+                sendBranchPickerWithNumbers(target, "🏢 Выберите филиал для сдачи:", list, "ST:DBRANCH:");
             }
             case "ST_DROP_DATE" -> sendMessage(target,
                     "📅 Когда привезёте шины?",
@@ -1055,11 +1057,7 @@ public final class BotService {
             case "ST_PICK_BRANCH" -> {
                 String city = session.state().path("pick_city").asText("");
                 List<Branch> list = branches.findByFilters(city.isBlank() ? null : city, null, null);
-                List<List<ObjectNode>> rows = new ArrayList<>();
-                for (Branch b : list) {
-                    rows.add(MessageFactory.row(messages.callback(branchButtonTitle(b), "ST:PBRANCH:" + b.id())));
-                }
-                sendMessage(target, "🏢 Выберите филиал выдачи:", rows, true);
+                sendBranchPickerWithNumbers(target, "🏢 Выберите филиал выдачи:", list, "ST:PBRANCH:");
             }
             case "ST_PICK_DATE" -> sendMessage(target,
                     "📅 Когда хотите забрать?",
@@ -1175,6 +1173,7 @@ public final class BotService {
             ObjectNode payloadJson = session.state().deepCopy();
             payloadJson.put("scenario", "storage_drop");
             requests.saveRequest(session.userId(), session.chatId(), "storage_drop", payloadJson);
+            notifyAdmins("📥 Новая заявка на сдачу шин\n" + buildStorageDropAdminSummary(session.state()));
             sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
             sendMessage(target, "✅ Заявка на сдачу шин зарегистрирована.", List.of(MessageFactory.row(messages.callback("🏠 В меню", "NAV:MENU"))), false);
             return true;
@@ -1212,6 +1211,7 @@ public final class BotService {
             ObjectNode payloadJson = session.state().deepCopy();
             payloadJson.put("scenario", "storage_pick");
             requests.saveRequest(session.userId(), session.chatId(), "storage_pick", payloadJson);
+            notifyAdmins("📤 Новая заявка на выдачу шин\n" + buildStoragePickAdminSummary(session.state()));
             sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
             sendMessage(target, "✅ Заявка на выдачу шин зарегистрирована.", List.of(MessageFactory.row(messages.callback("🏠 В меню", "NAV:MENU"))), false);
             return true;
@@ -1345,11 +1345,7 @@ public final class BotService {
             case "FB_BRANCH" -> {
                 String city = session.state().path("city").asText("");
                 List<Branch> list = branches.findByFilters(city.isBlank() ? null : city, null, null);
-                List<List<ObjectNode>> rows = new ArrayList<>();
-                for (Branch b : list) {
-                    rows.add(MessageFactory.row(messages.callback(branchButtonTitle(b), "FB:BRANCH:" + b.id())));
-                }
-                sendMessage(target, "🏢 Выберите филиал:", rows, true);
+                sendBranchPickerWithNumbers(target, "🏢 Выберите филиал:", list, "FB:BRANCH:");
             }
             case "FB_DATE" -> sendMessage(target,
                     "📅 Когда произошла ситуация?",
@@ -1432,6 +1428,7 @@ public final class BotService {
                 ObjectNode payload = session.state().deepCopy();
                 payload.put("scenario", "feedback");
                 requests.saveRequest(session.userId(), session.chatId(), "feedback", payload);
+                notifyAdmins("📝 Новое обращение (отзыв/жалоба)\n" + buildFeedbackAdminSummary(session.state()));
                 sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
                 sendMessage(target,
                         "✅ Обращение зарегистрировано.\nСпасибо, что помогаете нам стать лучше.",
@@ -1469,14 +1466,14 @@ public final class BotService {
     private void openAdminPanel(long userId, UserSession session, ChatTarget target) throws SQLException, IOException {
         if (!admins.hasAnyAdmin()) {
             admins.addAdmin(userId);
-            sendMessage(target,
+            sendAdminMessage(target,
                     "🔐 Вы зарегистрированы как первый администратор.\nДобро пожаловать в админ-панель.",
                     List.of(),
                     true);
         }
 
         if (!admins.isAdmin(userId)) {
-            sendMessage(target,
+            sendAdminMessage(target,
                     "⛔ Доступ запрещён.\nАдмин-панель доступна только администраторам.",
                     List.of(),
                     true);
@@ -1492,23 +1489,26 @@ public final class BotService {
         switch (session.step()) {
             case "AD_MENU" -> {
                 String phone = settings.getOperatorPhone();
-                sendMessage(target,
+                sendAdminMessage(target,
                         "🛠️ *Админ-панель*\n"
                                 + "📞 Оператор: " + phone + "\n"
                                 + "Выберите действие:",
                         List.of(
                                 MessageFactory.row(messages.callback("📞 Телефон оператора", "ADM:PHONE:EDIT")),
                                 MessageFactory.row(messages.callback("👥 Список админов", "ADM:ADMINS:LIST")),
-                                MessageFactory.row(messages.callback("➕ Добавить админа", "ADM:ADMINS:ADD"), messages.callback("➖ Удалить админа", "ADM:ADMINS:REMOVE")),
-                                MessageFactory.row(messages.callback("🏢 Добавить филиал", "ADM:BRANCH:ADD"), messages.callback("🗑️ Удалить филиал", "ADM:BRANCH:REMOVE"))
+                                MessageFactory.row(messages.callback("➕ Добавить админа", "ADM:ADMINS:ADD")),
+                                MessageFactory.row(messages.callback("➖ Удалить админа", "ADM:ADMINS:REMOVE")),
+                                MessageFactory.row(messages.callback("🏢 Добавить филиал", "ADM:BRANCH:ADD")),
+                                MessageFactory.row(messages.callback("🗑️ Удалить филиал", "ADM:BRANCH:REMOVE")),
+                                MessageFactory.row(messages.callback("🏠 Пользовательское меню", "ACT:USER_MENU"))
                         ),
                         true);
             }
-            case "AD_PHONE_INPUT" -> sendMessage(target,
+            case "AD_PHONE_INPUT" -> sendAdminMessage(target,
                     "📞 Введите новый номер оператора\nв формате +79005553535",
                     List.of(),
                     true);
-            case "AD_ADMIN_ADD_INPUT" -> sendMessage(target,
+            case "AD_ADMIN_ADD_INPUT" -> sendAdminMessage(target,
                     "👤 Введите `user_id` нового администратора:",
                     List.of(),
                     true);
@@ -1521,9 +1521,9 @@ public final class BotService {
                 if (rows.isEmpty()) {
                     rows = List.of(MessageFactory.row(messages.callback("🔄 Обновить", "ADM:REFRESH")));
                 }
-                sendMessage(target, "👥 Выберите администратора для удаления:", rows, true);
+                sendAdminMessage(target, "👥 Выберите администратора для удаления:", rows, true);
             }
-            case "AD_BRANCH_ADD_INPUT" -> sendMessage(target,
+            case "AD_BRANCH_ADD_INPUT" -> sendAdminMessage(target,
                     "🏢 Введите филиал в одну строку:\n"
                             + "`Город;Район;Адрес;Телефон;График;24/7(да/нет);Широта(опц);Долгота(опц)`",
                     List.of(),
@@ -1537,7 +1537,7 @@ public final class BotService {
                             "ADM:BRANCH:DEL:" + branch.id()
                     )));
                 }
-                sendMessage(target, "🏢 Выберите филиал для удаления:", rows, true);
+                sendAdminMessage(target, "🏢 Выберите филиал для удаления:", rows, true);
             }
             default -> renderAdminStep(new UserSession(session.userId(), session.chatId(), SC_ADMIN, "AD_MENU", session.state(), session.history()), target);
         }
@@ -1545,7 +1545,7 @@ public final class BotService {
 
     private boolean handleAdminCallback(UserSession session, ChatTarget target, String payload) throws SQLException, IOException {
         if (!admins.isAdmin(session.userId())) {
-            sendMessage(target, "⛔ Доступ запрещён.", List.of(), true);
+            sendAdminMessage(target, "⛔ Доступ запрещён.", List.of(), true);
             return true;
         }
 
@@ -1565,7 +1565,7 @@ public final class BotService {
                     sb.append("• ").append(id).append('\n');
                 }
             }
-            sendMessage(target, sb.toString().trim(), List.of(MessageFactory.row(messages.callback("↩️ Назад в панель", "ADM:REFRESH"))), true);
+            sendAdminMessage(target, sb.toString().trim(), List.of(MessageFactory.row(messages.callback("↩️ Назад в панель", "ADM:REFRESH"))), true);
             return true;
         }
         if ("ADM:ADMINS:ADD".equals(payload)) {
@@ -1602,15 +1602,15 @@ public final class BotService {
             long adminId = Long.parseLong(payload.substring("ADM:ADMIN:DEL:".length()));
             List<Long> ids = admins.listAdmins();
             if (ids.size() <= 1) {
-                sendMessage(target, "⚠️ Нельзя удалить последнего администратора.", List.of(), true);
+                sendAdminMessage(target, "⚠️ Нельзя удалить последнего администратора.", List.of(), true);
                 return true;
             }
             if (adminId == session.userId()) {
-                sendMessage(target, "⚠️ Нельзя удалить самого себя из панели.", List.of(), true);
+                sendAdminMessage(target, "⚠️ Нельзя удалить самого себя из панели.", List.of(), true);
                 return true;
             }
             boolean deleted = admins.removeAdmin(adminId);
-            sendMessage(target,
+            sendAdminMessage(target,
                     deleted ? "✅ Администратор удалён: " + adminId : "ℹ️ Администратор не найден.",
                     List.of(MessageFactory.row(messages.callback("↩️ К списку", "ADM:ADMINS:REMOVE"))),
                     true);
@@ -1619,7 +1619,7 @@ public final class BotService {
         if (payload.startsWith("ADM:BRANCH:DEL:")) {
             long branchId = Long.parseLong(payload.substring("ADM:BRANCH:DEL:".length()));
             boolean deleted = branches.deleteBranch(branchId);
-            sendMessage(target,
+            sendAdminMessage(target,
                     deleted ? "✅ Филиал удалён: #" + branchId : "ℹ️ Филиал не найден.",
                     List.of(MessageFactory.row(messages.callback("↩️ К списку", "ADM:BRANCH:REMOVE"))),
                     true);
@@ -1631,40 +1631,40 @@ public final class BotService {
 
     private boolean handleAdminText(UserSession session, ChatTarget target, String text) throws SQLException, IOException {
         if (!admins.isAdmin(session.userId())) {
-            sendMessage(target, "⛔ Доступ запрещён.", List.of(), true);
+            sendAdminMessage(target, "⛔ Доступ запрещён.", List.of(), true);
             return true;
         }
 
         switch (session.step()) {
             case "AD_PHONE_INPUT" -> {
                 if (!isValidPhone(text)) {
-                    sendMessage(target, "📱 Неверный формат. Пример: +79005553535", List.of(), true);
+                    sendAdminMessage(target, "📱 Неверный формат. Пример: +79005553535", List.of(), true);
                     return true;
                 }
                 settings.setOperatorPhone(text.trim());
                 UserSession next = new UserSession(session.userId(), session.chatId(), SC_ADMIN, "AD_MENU", mapper.createObjectNode(), mapper.createArrayNode());
                 sessions.save(next);
-                sendMessage(target, "✅ Телефон оператора обновлён: " + text.trim(), List.of(), true);
+                sendAdminMessage(target, "✅ Телефон оператора обновлён: " + text.trim(), List.of(), true);
                 renderAdminStep(next, target);
                 return true;
             }
             case "AD_ADMIN_ADD_INPUT" -> {
                 Long id = tryParseLong(text.trim());
                 if (id == null || id <= 0) {
-                    sendMessage(target, "⚠️ Нужен числовой `user_id`.", List.of(), true);
+                    sendAdminMessage(target, "⚠️ Нужен числовой `user_id`.", List.of(), true);
                     return true;
                 }
                 admins.addAdmin(id);
                 UserSession next = new UserSession(session.userId(), session.chatId(), SC_ADMIN, "AD_MENU", mapper.createObjectNode(), mapper.createArrayNode());
                 sessions.save(next);
-                sendMessage(target, "✅ Админ добавлен: " + id, List.of(), true);
+                sendAdminMessage(target, "✅ Админ добавлен: " + id, List.of(), true);
                 renderAdminStep(next, target);
                 return true;
             }
             case "AD_BRANCH_ADD_INPUT" -> {
                 BranchDraft draft = parseBranchDraft(text);
                 if (draft == null) {
-                    sendMessage(target,
+                    sendAdminMessage(target,
                             "⚠️ Не удалось разобрать филиал.\n"
                                     + "Формат: `Город;Район;Адрес;Телефон;График;24/7(да/нет);Широта;Долгота`",
                             List.of(),
@@ -1683,7 +1683,7 @@ public final class BotService {
                 );
                 UserSession next = new UserSession(session.userId(), session.chatId(), SC_ADMIN, "AD_MENU", mapper.createObjectNode(), mapper.createArrayNode());
                 sessions.save(next);
-                sendMessage(target, "✅ Филиал добавлен: #" + id, List.of(), true);
+                sendAdminMessage(target, "✅ Филиал добавлен: #" + id, List.of(), true);
                 renderAdminStep(next, target);
                 return true;
             }
@@ -1714,6 +1714,14 @@ public final class BotService {
         api.sendMessage(target, messages.message(text, rows, withNavigation));
     }
 
+    private void sendMessageKeepRows(ChatTarget target, String text, List<List<ObjectNode>> rows, boolean withNavigation) throws IOException {
+        api.sendMessage(target, messages.messageKeepRows(text, rows, withNavigation));
+    }
+
+    private void sendAdminMessage(ChatTarget target, String text, List<List<ObjectNode>> rows, boolean withNavigation) throws IOException {
+        api.sendMessage(target, messages.adminMessage(text, rows, withNavigation));
+    }
+
     private ChatTarget targetFrom(long userId, Long chatId) {
         if (chatId != null && chatId > 0) {
             return new ChatTarget(null, chatId);
@@ -1723,13 +1731,49 @@ public final class BotService {
 
     private void sendOperatorContact(ChatTarget target) throws IOException, SQLException {
         String phone = settings.getOperatorPhone();
-        String tel = "tel:" + normalizePhoneForUrl(phone);
-        sendMessage(target,
-                "👩‍💼 Связь с оператором:\n📞 " + phone,
-                List.of(
-                        MessageFactory.row(messages.link("📞 Позвонить оператору", tel))
-                ),
-                true);
+        sendMessage(target, "👩‍💼 Связь с оператором:\n📞 " + phone, List.of(), true);
+    }
+
+    private void notifyAdmins(String text) throws SQLException {
+        List<Long> adminIds = admins.listAdmins();
+        for (Long adminId : adminIds) {
+            try {
+                api.sendMessage(new ChatTarget(adminId, null), messages.adminMessage(text, List.of(), false));
+            } catch (Exception e) {
+                log.warn("Не удалось отправить уведомление админу {}: {}", adminId, e.getMessage());
+            }
+        }
+    }
+
+    private void sendBranchPickerWithNumbers(ChatTarget target, String title, List<Branch> list, String payloadPrefix) throws IOException {
+        if (list.isEmpty()) {
+            sendMessage(target, "😔 Филиалы не найдены. Попробуйте другой фильтр.", List.of(), true);
+            return;
+        }
+        StringBuilder text = new StringBuilder(title).append('\n');
+        List<List<ObjectNode>> rows = new ArrayList<>();
+        List<ObjectNode> currentRow = new ArrayList<>();
+
+        int i = 1;
+        for (Branch branch : list) {
+            text.append(i).append(". ")
+                    .append(branch.city()).append(", ")
+                    .append(branch.district()).append(", ")
+                    .append(branch.address())
+                    .append('\n');
+
+            currentRow.add(messages.callback(String.valueOf(i), payloadPrefix + branch.id()));
+            if (currentRow.size() == 8) {
+                rows.add(List.copyOf(currentRow));
+                currentRow.clear();
+            }
+            i++;
+        }
+        if (!currentRow.isEmpty()) {
+            rows.add(List.copyOf(currentRow));
+        }
+
+        sendMessageKeepRows(target, text.toString().trim(), rows, true);
     }
 
     private boolean isStartCommand(String text) {
@@ -1835,6 +1879,47 @@ public final class BotService {
             return "—";
         }
         return value.asText();
+    }
+
+    private String branchNameByIdSafe(String rawId) {
+        Long id = tryParseLong(rawId);
+        if (id == null || id <= 0) {
+            return "—";
+        }
+        try {
+            Optional<Branch> b = branches.findById(id);
+            if (b.isPresent()) {
+                Branch br = b.get();
+                return br.city() + ", " + br.district() + ", " + br.address();
+            }
+        } catch (Exception ignored) {
+            // nothing
+        }
+        return "#" + rawId;
+    }
+
+    private String buildFeedbackAdminSummary(ObjectNode state) {
+        return "Тип: " + safe(state, "type") + "\n"
+                + "Филиал: " + branchNameByIdSafe(safe(state, "branch_id")) + "\n"
+                + "Дата: " + safe(state, "date") + "\n"
+                + "Описание: " + safe(state, "description") + "\n"
+                + "Контакт: " + safe(state, "contact");
+    }
+
+    private String buildStorageDropAdminSummary(ObjectNode state) {
+        return "Филиал: " + branchNameByIdSafe(safe(state, "drop_branch")) + "\n"
+                + "Дата: " + safe(state, "drop_date") + "\n"
+                + "Имя: " + safe(state, "drop_name") + "\n"
+                + "Телефон: " + safe(state, "drop_phone") + "\n"
+                + "Комментарий: " + safe(state, "drop_comment");
+    }
+
+    private String buildStoragePickAdminSummary(ObjectNode state) {
+        return "Филиал: " + branchNameByIdSafe(safe(state, "pick_branch")) + "\n"
+                + "Дата: " + safe(state, "pick_date") + "\n"
+                + "ФИО: " + safe(state, "pick_fio") + "\n"
+                + "Телефон: " + safe(state, "pick_phone") + "\n"
+                + "Номер авто/договор: " + safe(state, "pick_contract");
     }
 
     private int estimatePrice(String service, String carType, String radius) {
