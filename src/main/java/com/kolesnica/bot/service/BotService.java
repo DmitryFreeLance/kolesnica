@@ -10,7 +10,9 @@ import com.kolesnica.bot.db.BranchRepository;
 import com.kolesnica.bot.db.RequestRepository;
 import com.kolesnica.bot.db.SessionRepository;
 import com.kolesnica.bot.db.SettingsRepository;
+import com.kolesnica.bot.db.UserRepository;
 import com.kolesnica.bot.model.Branch;
+import com.kolesnica.bot.model.BotUser;
 import com.kolesnica.bot.model.ChatTarget;
 import com.kolesnica.bot.model.UserSession;
 import org.slf4j.Logger;
@@ -36,6 +38,7 @@ public final class BotService {
     private static final String SC_FEEDBACK = "feedback";
     private static final String SC_OPERATOR = "operator";
     private static final String SC_ADMIN = "admin";
+    private static final int USERS_PAGE_SIZE = 20;
 
     private static final Pattern PHONE_PATTERN = Pattern.compile("^[+0-9()\\-\\s]{6,20}$");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
@@ -45,6 +48,7 @@ public final class BotService {
     private final BranchRepository branches;
     private final AdminRepository admins;
     private final SettingsRepository settings;
+    private final UserRepository users;
     private final RequestRepository requests;
     private final MessageFactory messages;
     private final ObjectMapper mapper;
@@ -55,6 +59,7 @@ public final class BotService {
             BranchRepository branches,
             AdminRepository admins,
             SettingsRepository settings,
+            UserRepository users,
             RequestRepository requests,
             MessageFactory messages,
             ObjectMapper mapper
@@ -64,6 +69,7 @@ public final class BotService {
         this.branches = branches;
         this.admins = admins;
         this.settings = settings;
+        this.users = users;
         this.requests = requests;
         this.messages = messages;
         this.mapper = mapper;
@@ -89,6 +95,7 @@ public final class BotService {
         if (userId == 0) {
             return;
         }
+        upsertUserFromNode(update.path("user"));
 
         UserSession session = sessions.getOrCreate(userId, chatId);
         sessions.save(new UserSession(userId, chatId, null, null, mapper.createObjectNode(), mapper.createArrayNode()));
@@ -105,6 +112,7 @@ public final class BotService {
         if (userId == 0L) {
             return;
         }
+        upsertUserFromNode(message.path("sender"));
 
         Long chatId = optLong(message.path("recipient").path("chat_id"));
         ChatTarget target = targetFrom(userId, chatId);
@@ -165,10 +173,7 @@ public final class BotService {
             if (intent != null) {
                 startScenario(intent, session, target);
             } else {
-                sendMessage(target,
-                        "🤝 Давайте по кнопкам, так будет быстрее.\nВыберите нужный раздел 👇",
-                        List.of(),
-                        true);
+                sendMainMenu(target, true);
             }
         }
     }
@@ -182,6 +187,7 @@ public final class BotService {
         if (userId == 0) {
             return;
         }
+        upsertUserFromNode(callback.path("user"));
 
         Long chatId = optLong(update.path("message").path("recipient").path("chat_id"));
         ChatTarget target = targetFrom(userId, chatId);
@@ -413,7 +419,7 @@ public final class BotService {
                 : "👋 Добро пожаловать в *Колесницу*.\nПодберём филиал, цену и запись за пару шагов.";
 
         List<List<ObjectNode>> rows = List.of(
-                MessageFactory.row(messages.callback("✅ Записаться на сезонную переобувку", "ACT:BOOK")),
+                MessageFactory.row(messages.callback("✅ Записаться на переобувку", "ACT:BOOK")),
                 MessageFactory.row(messages.callback("📍 Найти ближайший филиал", "ACT:BRANCH")),
                 MessageFactory.row(messages.callback("💸 Узнать цену", "ACT:PRICE")),
                 MessageFactory.row(messages.callback("📦 Хранение шин", "ACT:STORAGE")),
@@ -434,12 +440,19 @@ public final class BotService {
                             MessageFactory.row(messages.callback("🚙 Легковой", "BOOK:CAR:Легковой"), messages.callback("🚘 Кроссовер", "BOOK:CAR:Кроссовер")),
                             MessageFactory.row(messages.callback("🛻 Внедорожник", "BOOK:CAR:Внедорожник"), messages.callback("🚚 Коммерческий", "BOOK:CAR:Коммерческий"))
                     ), true);
-            case "BOOK_RADIUS" -> sendMessage(target,
+            case "BOOK_RADIUS" -> sendMessageKeepRows(target,
                     "🛞 Укажите радиус колёс:",
                     List.of(
-                            MessageFactory.row(messages.callback("R13", "BOOK:RAD:R13"), messages.callback("R14", "BOOK:RAD:R14"), messages.callback("R15", "BOOK:RAD:R15")),
-                            MessageFactory.row(messages.callback("R16", "BOOK:RAD:R16"), messages.callback("R17", "BOOK:RAD:R17"), messages.callback("R18", "BOOK:RAD:R18")),
-                            MessageFactory.row(messages.callback("R19+", "BOOK:RAD:R19+"), messages.callback("🤷 Не знаю", "BOOK:RAD:Не знаю"))
+                            MessageFactory.row(
+                                    messages.callback("R13", "BOOK:RAD:R13"),
+                                    messages.callback("R14", "BOOK:RAD:R14"),
+                                    messages.callback("R15", "BOOK:RAD:R15"),
+                                    messages.callback("R16", "BOOK:RAD:R16"),
+                                    messages.callback("R17", "BOOK:RAD:R17"),
+                                    messages.callback("R18", "BOOK:RAD:R18"),
+                                    messages.callback("R19+", "BOOK:RAD:R19+"),
+                                    messages.callback("🤷 Не знаю", "BOOK:RAD:Не знаю")
+                            )
                     ), true);
             case "BOOK_EXTRA" -> sendMessage(target,
                     "🧩 Нужны доп. услуги?",
@@ -515,6 +528,21 @@ public final class BotService {
             case "BOOK_COMMENT_TEXT" -> sendMessage(target,
                     "✍️ Напишите комментарий к заявке:",
                     List.of(), true);
+            case "BOOK_EDIT_PICK" -> sendMessage(target,
+                    "✏️ Что нужно изменить в заявке?",
+                    List.of(
+                            MessageFactory.row(messages.callback("🚗 Тип авто", "BOOK:EDIT_FIELD:car_type")),
+                            MessageFactory.row(messages.callback("🛞 Радиус", "BOOK:EDIT_FIELD:radius")),
+                            MessageFactory.row(messages.callback("🧩 Доп. услуги", "BOOK:EDIT_FIELD:extra")),
+                            MessageFactory.row(messages.callback("🏢 Филиал", "BOOK:EDIT_FIELD:branch")),
+                            MessageFactory.row(messages.callback("📅 Дата", "BOOK:EDIT_FIELD:date")),
+                            MessageFactory.row(messages.callback("⏰ Время", "BOOK:EDIT_FIELD:time")),
+                            MessageFactory.row(messages.callback("🙂 Имя", "BOOK:EDIT_FIELD:name")),
+                            MessageFactory.row(messages.callback("📱 Телефон", "BOOK:EDIT_FIELD:phone")),
+                            MessageFactory.row(messages.callback("🚙 Марка авто", "BOOK:EDIT_FIELD:car_brand")),
+                            MessageFactory.row(messages.callback("🔢 Госномер", "BOOK:EDIT_FIELD:plate")),
+                            MessageFactory.row(messages.callback("💬 Комментарий", "BOOK:EDIT_FIELD:comment"))
+                    ), true);
             case "BOOK_CONFIRM" -> sendBookingConfirm(session, target);
             default -> sendMainMenu(target, true);
         }
@@ -536,7 +564,7 @@ public final class BotService {
                 session.state().put("branch_id", id);
                 String title = branches.findById(id).map(Branch::shortLabel).orElse("выбран");
                 sendMessage(target, "✅ Филиал выбран: " + title, List.of(), true);
-                UserSession next = nextStep(session, "BOOK_DATE");
+                UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_DATE"));
                 sessions.save(next);
                 renderBookingStep(next, target);
                 return true;
@@ -588,7 +616,7 @@ public final class BotService {
         if (payload.startsWith("BOOK:BRANCH_ID:")) {
             long id = Long.parseLong(payload.substring("BOOK:BRANCH_ID:".length()));
             session.state().put("branch_id", id);
-            UserSession next = nextStep(session, "BOOK_DATE");
+            UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_DATE"));
             sessions.save(next);
             renderBookingStep(next, target);
             return true;
@@ -608,28 +636,28 @@ public final class BotService {
                 default -> "Как можно быстрее";
             };
             session.state().put("date", date);
-            UserSession next = nextStep(session, "BOOK_TIME");
+            UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_TIME"));
             sessions.save(next);
             renderBookingStep(next, target);
             return true;
         }
         if (payload.startsWith("BOOK:TIME:")) {
             session.state().put("time", payload.substring("BOOK:TIME:".length()));
-            UserSession next = nextStep(session, "BOOK_NAME");
+            UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_NAME"));
             sessions.save(next);
             renderBookingStep(next, target);
             return true;
         }
         if (payload.equals("BOOK:PLATE:SKIP")) {
             session.state().put("plate", "-");
-            UserSession next = nextStep(session, "BOOK_COMMENT_CHOICE");
+            UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_COMMENT_CHOICE"));
             sessions.save(next);
             renderBookingStep(next, target);
             return true;
         }
         if (payload.equals("BOOK:COMMENT:NONE")) {
             session.state().put("comment", "-");
-            UserSession next = nextStep(session, "BOOK_CONFIRM");
+            UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_CONFIRM"));
             sessions.save(next);
             renderBookingStep(next, target);
             return true;
@@ -640,23 +668,49 @@ public final class BotService {
             renderBookingStep(next, target);
             return true;
         }
-        if (payload.equals("BOOK:EDIT")) {
-            UserSession restart = new UserSession(session.userId(), session.chatId(), SC_BOOKING, "BOOK_CAR", mapper.createObjectNode(), mapper.createArrayNode());
-            sessions.save(restart);
-            renderBookingStep(restart, target);
+        if (payload.equals("BOOK:EDIT_PICK")) {
+            UserSession next = nextStep(session, "BOOK_EDIT_PICK");
+            sessions.save(next);
+            renderBookingStep(next, target);
+            return true;
+        }
+        if (payload.startsWith("BOOK:EDIT_FIELD:")) {
+            String field = payload.substring("BOOK:EDIT_FIELD:".length());
+            String step = switch (field) {
+                case "car_type" -> "BOOK_CAR";
+                case "radius" -> "BOOK_RADIUS";
+                case "extra" -> "BOOK_EXTRA";
+                case "branch" -> "BOOK_BRANCH_METHOD";
+                case "date" -> "BOOK_DATE";
+                case "time" -> "BOOK_TIME";
+                case "name" -> "BOOK_NAME";
+                case "phone" -> "BOOK_PHONE";
+                case "car_brand" -> "BOOK_BRAND";
+                case "plate" -> "BOOK_PLATE";
+                case "comment" -> "BOOK_COMMENT_CHOICE";
+                default -> null;
+            };
+            if (step == null) {
+                sendMessage(target, "Не удалось выбрать поле для редактирования.", List.of(), true);
+                return true;
+            }
+            session.state().put("editing_field", field);
+            UserSession next = nextStep(session, step);
+            sessions.save(next);
+            renderBookingStep(next, target);
             return true;
         }
         if (payload.equals("BOOK:CONFIRM")) {
             ObjectNode requestPayload = session.state().deepCopy();
             requestPayload.put("scenario", SC_BOOKING);
             requests.saveRequest(session.userId(), session.chatId(), "booking", requestPayload);
+            notifyAdmins("🚗 Новая заявка на переобувку\n" + buildBookingAdminSummary(session.state()));
 
             sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
             sendMessage(target,
                     "✅ Заявка создана и передана в обработку.\nСкоро с вами свяжемся для подтверждения.",
-                    List.of(MessageFactory.row(messages.callback("🏠 В меню", "ACT:BOOK"), messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"))),
+                    List.of(MessageFactory.row(messages.callback("🏠 В меню", "NAV:MENU"), messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"))),
                     false);
-            sendMainMenu(target, true);
             return true;
         }
 
@@ -671,14 +725,14 @@ public final class BotService {
                     return true;
                 }
                 session.state().put("date", text);
-                UserSession next = nextStep(session, "BOOK_TIME");
+                UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_TIME"));
                 sessions.save(next);
                 renderBookingStep(next, target);
                 return true;
             }
             case "BOOK_NAME" -> {
                 session.state().put("name", text);
-                UserSession next = nextStep(session, "BOOK_PHONE");
+                UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_PHONE"));
                 sessions.save(next);
                 renderBookingStep(next, target);
                 return true;
@@ -689,28 +743,28 @@ public final class BotService {
                     return true;
                 }
                 session.state().put("phone", text);
-                UserSession next = nextStep(session, "BOOK_BRAND");
+                UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_BRAND"));
                 sessions.save(next);
                 renderBookingStep(next, target);
                 return true;
             }
             case "BOOK_BRAND" -> {
                 session.state().put("car_brand", text);
-                UserSession next = nextStep(session, "BOOK_PLATE");
+                UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_PLATE"));
                 sessions.save(next);
                 renderBookingStep(next, target);
                 return true;
             }
             case "BOOK_PLATE" -> {
                 session.state().put("plate", text);
-                UserSession next = nextStep(session, "BOOK_COMMENT_CHOICE");
+                UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_COMMENT_CHOICE"));
                 sessions.save(next);
                 renderBookingStep(next, target);
                 return true;
             }
             case "BOOK_COMMENT_TEXT" -> {
                 session.state().put("comment", text);
-                UserSession next = nextStep(session, "BOOK_CONFIRM");
+                UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_CONFIRM"));
                 sessions.save(next);
                 renderBookingStep(next, target);
                 return true;
@@ -740,7 +794,7 @@ public final class BotService {
         sendMessage(target,
                 summary,
                 List.of(
-                        MessageFactory.row(messages.callback("✅ Подтвердить", "BOOK:CONFIRM"), messages.callback("✏️ Изменить", "BOOK:EDIT"))
+                        MessageFactory.row(messages.callback("✅ Подтвердить", "BOOK:CONFIRM"), messages.callback("✏️ Изменить", "BOOK:EDIT_PICK"))
                 ), true);
     }
 
@@ -753,22 +807,37 @@ public final class BotService {
 
         Branch b = nearest.get();
         session.state().put("branch_id", b.id());
-        sendMessage(target,
-                "✅ Ближайший филиал выбран:\n" + b.cardText(),
-                List.of(),
-                true);
-
-        UserSession next = nextStep(session, "BOOK_DATE");
+        String nextStepName = resolveBookingNextStep(session, "BOOK_DATE");
+        UserSession next = nextStep(session, nextStepName);
         sessions.save(next);
+        if ("BOOK_DATE".equals(nextStepName)) {
+            sendMessage(target,
+                    "✅ Ближайший филиал выбран:\n" + b.cardText() + "\n\n📅 Когда удобно приехать?",
+                    List.of(
+                            MessageFactory.row(messages.callback("🟢 Сегодня", "BOOK:DATE:TODAY"), messages.callback("🟡 Завтра", "BOOK:DATE:TOMORROW")),
+                            MessageFactory.row(messages.callback("🗓️ Выбрать дату", "BOOK:DATE:CUSTOM"), messages.callback("⚡ Как можно быстрее", "BOOK:DATE:ASAP"))
+                    ),
+                    true);
+            return;
+        }
         renderBookingStep(next, target);
     }
 
     private boolean bookingSelect(UserSession session, ChatTarget target, String key, String value, String step) throws SQLException, IOException {
         session.state().put(key, value);
-        UserSession next = nextStep(session, step);
+        UserSession next = nextStep(session, resolveBookingNextStep(session, step));
         sessions.save(next);
         renderBookingStep(next, target);
         return true;
+    }
+
+    private String resolveBookingNextStep(UserSession session, String defaultStep) {
+        String editing = session.state().path("editing_field").asText("");
+        if (!editing.isBlank()) {
+            session.state().remove("editing_field");
+            return "BOOK_CONFIRM";
+        }
+        return defaultStep;
     }
 
     // ---------------- BRANCH FINDER ----------------
@@ -819,7 +888,7 @@ public final class BotService {
                         List.of(
                                 MessageFactory.row(messages.callback("✅ Записаться сюда", "BR:CARD:BOOK:" + b.id())),
                                 MessageFactory.row(messages.callback("📞 Позвонить", "BR:CARD:CALL:" + b.id())),
-                                MessageFactory.row(messages.callback("🔁 Другой филиал", "BR:CARD:OTHER"), messages.callback("🏠 Меню", "NAV:MENU"))
+                                MessageFactory.row(messages.callback("🔁 Другой филиал", "BR:CARD:OTHER"))
                         ),
                         true);
             }
@@ -938,12 +1007,19 @@ public final class BotService {
                             MessageFactory.row(messages.callback("🚙 Легковой", "PRICE:CAR:Легковой"), messages.callback("🚘 Кроссовер", "PRICE:CAR:Кроссовер")),
                             MessageFactory.row(messages.callback("🛻 Внедорожник", "PRICE:CAR:Внедорожник"), messages.callback("🚚 Коммерческий", "PRICE:CAR:Коммерческий"))
                     ), true);
-            case "PRICE_RADIUS" -> sendMessage(target,
+            case "PRICE_RADIUS" -> sendMessageKeepRows(target,
                     "🛞 Радиус колёс:",
                     List.of(
-                            MessageFactory.row(messages.callback("R13", "PRICE:RAD:R13"), messages.callback("R14", "PRICE:RAD:R14"), messages.callback("R15", "PRICE:RAD:R15")),
-                            MessageFactory.row(messages.callback("R16", "PRICE:RAD:R16"), messages.callback("R17", "PRICE:RAD:R17"), messages.callback("R18", "PRICE:RAD:R18")),
-                            MessageFactory.row(messages.callback("R19+", "PRICE:RAD:R19+"), messages.callback("🤷 Не знаю", "PRICE:RAD:Не знаю"))
+                            MessageFactory.row(
+                                    messages.callback("R13", "PRICE:RAD:R13"),
+                                    messages.callback("R14", "PRICE:RAD:R14"),
+                                    messages.callback("R15", "PRICE:RAD:R15"),
+                                    messages.callback("R16", "PRICE:RAD:R16"),
+                                    messages.callback("R17", "PRICE:RAD:R17"),
+                                    messages.callback("R18", "PRICE:RAD:R18"),
+                                    messages.callback("R19+", "PRICE:RAD:R19+"),
+                                    messages.callback("🤷 Не знаю", "PRICE:RAD:Не знаю")
+                            )
                     ), true);
             case "PRICE_EXTRA" -> sendMessage(target,
                     "🧩 Дополнительные параметры:",
@@ -1005,11 +1081,14 @@ public final class BotService {
                             MessageFactory.row(messages.callback("📘 Условия", "ST:ACT:CONDITIONS"), messages.callback("💸 Стоимость", "ST:ACT:PRICE")),
                             MessageFactory.row(messages.callback("📥 Сдать", "ST:ACT:DROP"), messages.callback("📤 Забрать", "ST:ACT:PICK"))
                     ), true);
-            case "ST_PRICE_RADIUS" -> sendMessage(target,
+            case "ST_PRICE_RADIUS" -> sendMessageKeepRows(target,
                     "🛞 Выберите радиус шин:",
                     List.of(
-                            MessageFactory.row(messages.callback("R13-R15", "ST:PRAD:R13-R15"), messages.callback("R16-R17", "ST:PRAD:R16-R17")),
-                            MessageFactory.row(messages.callback("R18+", "ST:PRAD:R18+"))
+                            MessageFactory.row(
+                                    messages.callback("R13-R15", "ST:PRAD:R13-R15"),
+                                    messages.callback("R16-R17", "ST:PRAD:R16-R17"),
+                                    messages.callback("R18+", "ST:PRAD:R18+")
+                            )
                     ), true);
             case "ST_PRICE_TYPE" -> sendMessage(target,
                     "📦 Тип хранения:",
@@ -1498,6 +1577,7 @@ public final class BotService {
                                 MessageFactory.row(messages.callback("👥 Список админов", "ADM:ADMINS:LIST")),
                                 MessageFactory.row(messages.callback("➕ Добавить админа", "ADM:ADMINS:ADD")),
                                 MessageFactory.row(messages.callback("➖ Удалить админа", "ADM:ADMINS:REMOVE")),
+                                MessageFactory.row(messages.callback("👥 Все пользователи", "ADM:USERS:PAGE:1")),
                                 MessageFactory.row(messages.callback("🏢 Добавить филиал", "ADM:BRANCH:ADD")),
                                 MessageFactory.row(messages.callback("🗑️ Удалить филиал", "ADM:BRANCH:REMOVE")),
                                 MessageFactory.row(messages.callback("🏠 Пользовательское меню", "ACT:USER_MENU"))
@@ -1596,6 +1676,14 @@ public final class BotService {
             UserSession next = new UserSession(session.userId(), session.chatId(), SC_ADMIN, "AD_MENU", mapper.createObjectNode(), mapper.createArrayNode());
             sessions.save(next);
             renderAdminStep(next, target);
+            return true;
+        }
+        if (payload.startsWith("ADM:USERS:PAGE:")) {
+            Integer page = tryParseInt(payload.substring("ADM:USERS:PAGE:".length()));
+            if (page == null || page < 1) {
+                page = 1;
+            }
+            renderUsersPage(target, page);
             return true;
         }
         if (payload.startsWith("ADM:ADMIN:DEL:")) {
@@ -1729,6 +1817,29 @@ public final class BotService {
         return new ChatTarget(userId, null);
     }
 
+    private void upsertUserFromNode(JsonNode user) {
+        if (user == null || user.isMissingNode() || user.isNull()) {
+            return;
+        }
+        long userId = user.path("user_id").asLong(0L);
+        if (userId == 0L) {
+            return;
+        }
+        try {
+            users.upsertUser(
+                    userId,
+                    user.path("name").asText(null),
+                    user.path("first_name").asText(null),
+                    user.path("last_name").asText(null),
+                    user.path("username").asText(null),
+                    user.path("is_bot").asBoolean(false),
+                    user.path("last_activity_time").isMissingNode() ? null : user.path("last_activity_time").asLong()
+            );
+        } catch (Exception e) {
+            log.warn("Не удалось обновить пользователя {}: {}", userId, e.getMessage());
+        }
+    }
+
     private void sendOperatorContact(ChatTarget target) throws IOException, SQLException {
         String phone = settings.getOperatorPhone();
         sendMessage(target, "👩‍💼 Связь с оператором:\n📞 " + phone, List.of(), true);
@@ -1774,6 +1885,42 @@ public final class BotService {
         }
 
         sendMessageKeepRows(target, text.toString().trim(), rows, true);
+    }
+
+    private void renderUsersPage(ChatTarget target, int page) throws SQLException, IOException {
+        int totalUsers = users.countHumanUsers();
+        int totalPages = Math.max(1, (int) Math.ceil(totalUsers / (double) USERS_PAGE_SIZE));
+        int safePage = Math.max(1, Math.min(page, totalPages));
+
+        List<BotUser> list = users.listHumanUsers(safePage, USERS_PAGE_SIZE);
+        StringBuilder text = new StringBuilder("👥 Пользователи\n");
+        text.append("Страница ").append(safePage).append(" из ").append(totalPages).append("\n\n");
+
+        if (list.isEmpty()) {
+            text.append("Список пуст.");
+        } else {
+            int idx = (safePage - 1) * USERS_PAGE_SIZE + 1;
+            for (BotUser user : list) {
+                text.append(idx++).append(". ")
+                        .append(user.name() == null || user.name().isBlank() ? "Без имени" : user.name())
+                        .append(" (id: ").append(user.userId()).append(")");
+                if (user.username() != null && !user.username().isBlank()) {
+                    text.append(" @").append(user.username());
+                }
+                text.append('\n');
+            }
+        }
+
+        List<List<ObjectNode>> rows = new ArrayList<>();
+        if (safePage > 1) {
+            rows.add(MessageFactory.row(messages.callback("◀️ Предыдущая", "ADM:USERS:PAGE:" + (safePage - 1))));
+        }
+        if (safePage < totalPages) {
+            rows.add(MessageFactory.row(messages.callback("▶️ Следующая", "ADM:USERS:PAGE:" + (safePage + 1))));
+        }
+        rows.add(MessageFactory.row(messages.callback("↩️ Назад в панель", "ADM:REFRESH")));
+
+        sendAdminMessage(target, text.toString().trim(), rows, true);
     }
 
     private boolean isStartCommand(String text) {
@@ -1906,6 +2053,17 @@ public final class BotService {
                 + "Контакт: " + safe(state, "contact");
     }
 
+    private String buildBookingAdminSummary(ObjectNode state) {
+        return "Филиал: " + branchNameByIdSafe(safe(state, "branch_id")) + "\n"
+                + "Авто: " + safe(state, "car_type") + ", " + safe(state, "car_brand") + "\n"
+                + "Радиус: " + safe(state, "radius") + "\n"
+                + "Доп. услуги: " + safe(state, "extra") + "\n"
+                + "Дата/время: " + safe(state, "date") + ", " + safe(state, "time") + "\n"
+                + "Клиент: " + safe(state, "name") + ", " + safe(state, "phone") + "\n"
+                + "Госномер: " + safe(state, "plate") + "\n"
+                + "Комментарий: " + safe(state, "comment");
+    }
+
     private String buildStorageDropAdminSummary(ObjectNode state) {
         return "Филиал: " + branchNameByIdSafe(safe(state, "drop_branch")) + "\n"
                 + "Дата: " + safe(state, "drop_date") + "\n"
@@ -1963,25 +2121,17 @@ public final class BotService {
         return base;
     }
 
-    private String branchButtonTitle(Branch branch) {
-        String raw = "📍 " + branch.city() + ", " + branch.district() + " · " + branch.address();
-        if (raw.length() <= 120) {
-            return raw;
-        }
-        return raw.substring(0, 117) + "...";
-    }
-
-    private String normalizePhoneForUrl(String phone) {
-        String cleaned = phone.replaceAll("[^0-9+]", "");
-        if (cleaned.startsWith("8")) {
-            return "+7" + cleaned.substring(1);
-        }
-        return cleaned;
-    }
-
     private Long tryParseLong(String value) {
         try {
             return Long.parseLong(value);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Integer tryParseInt(String value) {
+        try {
+            return Integer.parseInt(value);
         } catch (Exception e) {
             return null;
         }

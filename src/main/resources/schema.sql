@@ -42,6 +42,17 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    name TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    username TEXT,
+    is_bot INTEGER NOT NULL DEFAULT 0,
+    last_activity_time INTEGER,
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_requests_user ON requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_requests_type ON requests(request_type);
 

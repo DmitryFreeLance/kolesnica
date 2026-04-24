@@ -9,6 +9,7 @@ import com.kolesnica.bot.db.Database;
 import com.kolesnica.bot.db.RequestRepository;
 import com.kolesnica.bot.db.SessionRepository;
 import com.kolesnica.bot.db.SettingsRepository;
+import com.kolesnica.bot.db.UserRepository;
 import com.kolesnica.bot.service.BotService;
 import com.kolesnica.bot.service.MessageFactory;
 import org.slf4j.Logger;
@@ -29,6 +30,7 @@ public final class Main {
             BranchRepository branches = new BranchRepository(db.connection());
             AdminRepository admins = new AdminRepository(db.connection());
             SettingsRepository settings = new SettingsRepository(db.connection());
+            UserRepository users = new UserRepository(db.connection());
             RequestRepository requests = new RequestRepository(db.connection(), mapper);
 
             MaxApiClient api = new MaxApiClient(
@@ -46,6 +48,7 @@ public final class Main {
                     branches,
                     admins,
                     settings,
+                    users,
                     requests,
                     messageFactory,
                     mapper

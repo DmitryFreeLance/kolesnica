@@ -84,7 +84,6 @@ public final class MessageFactory {
     public List<List<ObjectNode>> adminNavigationRows() {
         List<List<ObjectNode>> rows = new ArrayList<>();
         rows.add(List.of(callback("⬅️ Назад", "NAV:BACK")));
-        rows.add(List.of(callback("🛠️ Админ панель", "NAV:ADMIN_HOME")));
         return rows;
     }
 
