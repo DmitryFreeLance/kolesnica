@@ -453,15 +453,15 @@ public final class BotService {
                             MessageFactory.row(
                                     messages.callback("R17", "BOOK:RAD:R17"),
                                     messages.callback("R18", "BOOK:RAD:R18"),
-                                    messages.callback("R19+", "BOOK:RAD:R19+"),
-                                    messages.callback("🤷 Не знаю", "BOOK:RAD:Не знаю")
-                            )
+                                    messages.callback("R19+", "BOOK:RAD:R19+")
+                            ),
+                            MessageFactory.row(messages.callback("🤷 Не знаю", "BOOK:RAD:Не знаю"))
                     ), true);
             case "BOOK_EXTRA" -> sendMessage(target,
                     "🧩 Нужны доп. услуги?",
                     List.of(
                             MessageFactory.row(messages.callback("🚫 Нет", "BOOK:EXTRA:Нет"), messages.callback("⚖️ Балансировка", "BOOK:EXTRA:Балансировка")),
-                            MessageFactory.row(messages.callback("🛍️ Пакеты", "BOOK:EXTRA:Пакеты"), messages.callback("🫧 Мойка", "BOOK:EXTRA:Мойка")),
+                            MessageFactory.row(messages.callback("🛍️ Пакеты", "BOOK:EXTRA:Пакеты"), messages.callback("🚿 Мойка", "BOOK:EXTRA:Мойка")),
                             MessageFactory.row(messages.callback("📦 Хранение", "BOOK:EXTRA:Хранение"), messages.callback("💬 Консультация", "BOOK:EXTRA:Консультация"))
                     ), true);
             case "BOOK_BRANCH_METHOD" -> {
@@ -1024,9 +1024,9 @@ public final class BotService {
                             MessageFactory.row(
                                     messages.callback("R17", "PRICE:RAD:R17"),
                                     messages.callback("R18", "PRICE:RAD:R18"),
-                                    messages.callback("R19+", "PRICE:RAD:R19+"),
-                                    messages.callback("🤷 Не знаю", "PRICE:RAD:Не знаю")
-                            )
+                                    messages.callback("R19+", "PRICE:RAD:R19+")
+                            ),
+                            MessageFactory.row(messages.callback("🤷 Не знаю", "PRICE:RAD:Не знаю"))
                     ), true);
             case "PRICE_EXTRA" -> sendMessage(target,
                     "🧩 Дополнительные параметры:",
