@@ -448,7 +448,9 @@ public final class BotService {
                                     messages.callback("R13", "BOOK:RAD:R13"),
                                     messages.callback("R14", "BOOK:RAD:R14"),
                                     messages.callback("R15", "BOOK:RAD:R15"),
-                                    messages.callback("R16", "BOOK:RAD:R16"),
+                                    messages.callback("R16", "BOOK:RAD:R16")
+                            ),
+                            MessageFactory.row(
                                     messages.callback("R17", "BOOK:RAD:R17"),
                                     messages.callback("R18", "BOOK:RAD:R18"),
                                     messages.callback("R19+", "BOOK:RAD:R19+"),
@@ -907,7 +909,9 @@ public final class BotService {
             }
             case "BR:METHOD:ALL" -> {
                 session.state().put("method", "all");
-                UserSession next = nextStep(session, "BR_CITY");
+                session.state().remove("city");
+                session.state().remove("district");
+                UserSession next = nextStep(session, "BR_PICK");
                 sessions.save(next);
                 renderBranchStep(next, target);
                 return true;
@@ -921,7 +925,7 @@ public final class BotService {
             }
             case "BR:CARD:OTHER" -> {
                 String method = session.state().path("method").asText("all");
-                String step = "geo".equals(method) ? "BR_PICK" : "BR_DISTRICT";
+                String step = "district".equals(method) ? "BR_DISTRICT" : "BR_PICK";
                 UserSession next = nextStep(session, step);
                 sessions.save(next);
                 renderBranchStep(next, target);
@@ -931,7 +935,8 @@ public final class BotService {
                 if (payload.startsWith("BR:CITY:")) {
                     session.state().put("city", payload.substring("BR:CITY:".length()));
                     session.state().remove("district");
-                    UserSession next = nextStep(session, "BR_DISTRICT");
+                    String method = session.state().path("method").asText("district");
+                    UserSession next = nextStep(session, "all".equals(method) ? "BR_PICK" : "BR_DISTRICT");
                     sessions.save(next);
                     renderBranchStep(next, target);
                     return true;
@@ -1014,7 +1019,9 @@ public final class BotService {
                                     messages.callback("R13", "PRICE:RAD:R13"),
                                     messages.callback("R14", "PRICE:RAD:R14"),
                                     messages.callback("R15", "PRICE:RAD:R15"),
-                                    messages.callback("R16", "PRICE:RAD:R16"),
+                                    messages.callback("R16", "PRICE:RAD:R16")
+                            ),
+                            MessageFactory.row(
                                     messages.callback("R17", "PRICE:RAD:R17"),
                                     messages.callback("R18", "PRICE:RAD:R18"),
                                     messages.callback("R19+", "PRICE:RAD:R19+"),
@@ -1889,7 +1896,12 @@ public final class BotService {
 
     private void sendOperatorContact(ChatTarget target) throws IOException, SQLException {
         String phone = settings.getOperatorPhone();
-        sendMessage(target, "👩‍💼 Связь с оператором:\n📞 " + phone, List.of(), true);
+        sendMessage(
+                target,
+                "👩‍💼 Связь с оператором:\n📞 " + phone,
+                List.of(MessageFactory.row(messages.callback("🏠 Главное меню", "NAV:MENU"))),
+                false
+        );
     }
 
     private void notifyAdmins(String text) throws SQLException {
@@ -2141,38 +2153,38 @@ public final class BotService {
     }
 
     private String buildFeedbackAdminSummary(ObjectNode state) {
-        return "Тип: " + safe(state, "type") + "\n"
-                + "Филиал: " + branchNameByIdSafe(safe(state, "branch_id")) + "\n"
-                + "Дата: " + safe(state, "date") + "\n"
-                + "Описание: " + safe(state, "description") + "\n"
-                + "Контакт: " + safe(state, "contact");
+        return "🧾 Тип: " + safe(state, "type") + "\n"
+                + "🏢 Филиал: " + branchNameByIdSafe(safe(state, "branch_id")) + "\n"
+                + "📅 Дата: " + safe(state, "date") + "\n"
+                + "📝 Описание: " + safe(state, "description") + "\n"
+                + "📱 Контакт: " + safe(state, "contact");
     }
 
     private String buildBookingAdminSummary(ObjectNode state) {
-        return "Филиал: " + branchNameByIdSafe(safe(state, "branch_id")) + "\n"
-                + "Авто: " + safe(state, "car_type") + ", " + safe(state, "car_brand") + "\n"
-                + "Радиус: " + safe(state, "radius") + "\n"
-                + "Доп. услуги: " + safe(state, "extra") + "\n"
-                + "Дата/время: " + safe(state, "date") + ", " + safe(state, "time") + "\n"
-                + "Клиент: " + safe(state, "name") + ", " + safe(state, "phone") + "\n"
-                + "Госномер: " + safe(state, "plate") + "\n"
-                + "Комментарий: " + safe(state, "comment");
+        return "🏢 Филиал: " + branchNameByIdSafe(safe(state, "branch_id")) + "\n"
+                + "🚗 Авто: " + safe(state, "car_type") + ", " + safe(state, "car_brand") + "\n"
+                + "🛞 Радиус: " + safe(state, "radius") + "\n"
+                + "🧩 Доп. услуги: " + safe(state, "extra") + "\n"
+                + "📅 Дата/время: " + safe(state, "date") + ", " + safe(state, "time") + "\n"
+                + "👤 Клиент: " + safe(state, "name") + ", " + safe(state, "phone") + "\n"
+                + "🔢 Госномер: " + safe(state, "plate") + "\n"
+                + "💬 Комментарий: " + safe(state, "comment");
     }
 
     private String buildStorageDropAdminSummary(ObjectNode state) {
-        return "Филиал: " + branchNameByIdSafe(safe(state, "drop_branch")) + "\n"
-                + "Дата: " + safe(state, "drop_date") + "\n"
-                + "Имя: " + safe(state, "drop_name") + "\n"
-                + "Телефон: " + safe(state, "drop_phone") + "\n"
-                + "Комментарий: " + safe(state, "drop_comment");
+        return "🏢 Филиал: " + branchNameByIdSafe(safe(state, "drop_branch")) + "\n"
+                + "📅 Дата: " + safe(state, "drop_date") + "\n"
+                + "👤 Имя: " + safe(state, "drop_name") + "\n"
+                + "📱 Телефон: " + safe(state, "drop_phone") + "\n"
+                + "💬 Комментарий: " + safe(state, "drop_comment");
     }
 
     private String buildStoragePickAdminSummary(ObjectNode state) {
-        return "Филиал: " + branchNameByIdSafe(safe(state, "pick_branch")) + "\n"
-                + "Дата: " + safe(state, "pick_date") + "\n"
-                + "ФИО: " + safe(state, "pick_fio") + "\n"
-                + "Телефон: " + safe(state, "pick_phone") + "\n"
-                + "Номер авто/договор: " + safe(state, "pick_contract");
+        return "🏢 Филиал: " + branchNameByIdSafe(safe(state, "pick_branch")) + "\n"
+                + "📅 Дата: " + safe(state, "pick_date") + "\n"
+                + "👤 ФИО: " + safe(state, "pick_fio") + "\n"
+                + "📱 Телефон: " + safe(state, "pick_phone") + "\n"
+                + "🔢 Номер авто/договор: " + safe(state, "pick_contract");
     }
 
     private int estimatePrice(String service, String carType, String radius) {
