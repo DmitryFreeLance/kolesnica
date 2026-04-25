@@ -53,6 +53,11 @@ public final class BotService {
     private static final String EX_HUB_LUBE = "HUB_LUBE";
     private static final String EX_GLUE_CLEAN = "GLUE_CLEAN";
 
+    private static final String PRICE_CAT_SEDAN = "SEDAN";
+    private static final String PRICE_CAT_SUV = "SUV";
+    private static final String PRICE_CAT_COMM = "COMM";
+    private static final String PRICE_CAT_EXTRA = "EXTRA";
+
     private static final Pattern PHONE_PATTERN = Pattern.compile("^[+0-9()\\-\\s]{6,20}$");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
 
@@ -195,6 +200,7 @@ public final class BotService {
         JsonNode callback = update.path("callback");
         String callbackId = callback.path("callback_id").asText("");
         String payload = callback.path("payload").asText("");
+        String callbackMessageId = update.path("message").path("body").path("mid").asText("");
 
         long userId = callback.path("user").path("user_id").asLong(0L);
         if (userId == 0) {
@@ -230,7 +236,7 @@ public final class BotService {
         } else if (SC_BRANCH.equals(session.scenario())) {
             handled = handleBranchCallback(session, target, payload);
         } else if (SC_PRICE.equals(session.scenario())) {
-            handled = handlePriceCallback(session, target, payload);
+            handled = handlePriceCallback(session, target, payload, callbackMessageId);
         } else if (SC_STORAGE.equals(session.scenario())) {
             handled = handleStorageCallback(session, target, payload);
         } else if (SC_FEEDBACK.equals(session.scenario())) {
@@ -454,6 +460,13 @@ public final class BotService {
                             MessageFactory.row(messages.callback("🛻 Внедорожник", "BOOK:CAR:Внедорожник"), messages.callback("🚐 Минивен", "BOOK:CAR:Минивен")),
                             MessageFactory.row(messages.callback("🚚 Коммерческий", "BOOK:CAR:Коммерческий"))
                     ), true);
+            case "BOOK_WHEELS" -> sendMessage(target,
+                    "🚚 Сколько колёс у коммерческого авто?",
+                    List.of(
+                            MessageFactory.row(messages.callback("4 колеса", "BOOK:WHEELS:4")),
+                            MessageFactory.row(messages.callback("6 колёс", "BOOK:WHEELS:6"))
+                    ),
+                    true);
             case "BOOK_RADIUS" -> sendMessageKeepRows(target,
                     "🛞 Укажите диаметр колёс:",
                     List.of(
@@ -566,7 +579,34 @@ public final class BotService {
 
     private boolean handleBookingCallback(UserSession session, ChatTarget target, String payload) throws SQLException, IOException {
         if (payload.startsWith("BOOK:CAR:")) {
-            return bookingSelect(session, target, "car_type", payload.substring("BOOK:CAR:".length()), "BOOK_RADIUS");
+            String carType = payload.substring("BOOK:CAR:".length());
+            session.state().put("car_type", carType);
+            if ("Коммерческий".equals(carType)) {
+                session.state().remove("radius");
+                session.state().remove("wheel_count");
+                UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_WHEELS"));
+                sessions.save(next);
+                renderBookingStep(next, target);
+                return true;
+            }
+            session.state().remove("wheel_count");
+            UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_RADIUS"));
+            sessions.save(next);
+            renderBookingStep(next, target);
+            return true;
+        }
+        if (payload.startsWith("BOOK:WHEELS:")) {
+            String wheels = payload.substring("BOOK:WHEELS:".length());
+            if (!"4".equals(wheels) && !"6".equals(wheels)) {
+                sendMessage(target, "⚠️ Выберите 4 или 6 колёс кнопкой.", List.of(), true);
+                return true;
+            }
+            session.state().put("wheel_count", wheels);
+            session.state().put("radius", "Коммерческий (" + wheels + " колеса)");
+            UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_EXTRA"));
+            sessions.save(next);
+            renderBookingStep(next, target);
+            return true;
         }
         if (payload.startsWith("BOOK:RAD:")) {
             return bookingSelect(session, target, "radius", payload.substring("BOOK:RAD:".length()), "BOOK_EXTRA");
@@ -693,7 +733,7 @@ public final class BotService {
             String field = payload.substring("BOOK:EDIT_FIELD:".length());
             String step = switch (field) {
                 case "car_type" -> "BOOK_CAR";
-                case "radius" -> "BOOK_RADIUS";
+                case "radius" -> "Коммерческий".equals(session.state().path("car_type").asText("")) ? "BOOK_WHEELS" : "BOOK_RADIUS";
                 case "extra" -> "BOOK_EXTRA";
                 case "branch" -> "BOOK_BRANCH_METHOD";
                 case "date" -> "BOOK_DATE";
@@ -803,6 +843,9 @@ public final class BotService {
         String summary = "📋 Проверьте заявку:\n"
                 + "🚗 " + safe(session.state(), "car_type") + "\n"
                 + "🛞 Диаметр: " + safe(session.state(), "radius") + "\n"
+                + ("Коммерческий".equals(safe(session.state(), "car_type"))
+                ? "🚚 Колёса: " + safe(session.state(), "wheel_count") + "\n"
+                : "")
                 + "🏢 " + branchText + "\n"
                 + "📅 " + safe(session.state(), "date") + ", " + safe(session.state(), "time") + "\n"
                 + "👤 " + safe(session.state(), "name") + " • 📱 " + safe(session.state(), "phone");
@@ -1043,7 +1086,7 @@ public final class BotService {
         }
     }
 
-    private boolean handlePriceCallback(UserSession session, ChatTarget target, String payload) throws SQLException, IOException {
+    private boolean handlePriceCallback(UserSession session, ChatTarget target, String payload, String callbackMessageId) throws SQLException, IOException {
         if (payload.startsWith("PRICE:SERVICE:")) {
             return priceSelect(session, target, "service", payload.substring("PRICE:SERVICE:".length()), "PRICE_CAR");
         }
@@ -1075,49 +1118,46 @@ public final class BotService {
         if (payload.startsWith("PRICE:RAD:")) {
             return priceSelect(session, target, "radius", payload.substring("PRICE:RAD:".length()), "PRICE_EXTRA");
         }
+        if (payload.equals("PRICE:EXTRA:DONE")) {
+            return finishPriceFlow(session, target);
+        }
+        if (payload.startsWith("PRICE:EXTRA_TOGGLE:")) {
+            String code = payload.substring("PRICE:EXTRA_TOGGLE:".length());
+            if (EX_NONE.equals(code)) {
+                clearPriceExtras(session.state());
+                togglePriceExtra(session.state(), EX_NONE);
+                sessions.save(session);
+                return finishPriceFlow(session, target);
+            }
+
+            togglePriceExtra(session.state(), code);
+            sessions.save(session);
+            if (callbackMessageId != null && !callbackMessageId.isBlank()) {
+                editPriceExtraMessage(callbackMessageId, session);
+            } else {
+                renderPriceStep(session, target);
+            }
+            return true;
+        }
         if (payload.startsWith("PRICE:EXTRA:")) {
             String legacy = payload.substring("PRICE:EXTRA:".length());
             clearPriceExtras(session.state());
             if ("Нет".equals(legacy)) {
                 togglePriceExtra(session.state(), EX_NONE);
                 sessions.save(session);
-                UserSession next = nextStep(session, "PRICE_EXTRA");
-                sessions.save(next);
-                renderPriceStep(next, target);
-                return true;
+                return finishPriceFlow(session, target);
             }
             if ("RunFlat".equalsIgnoreCase(legacy)) {
                 togglePriceExtra(session.state(), EX_RUNFLAT);
             } else if ("Низкий профиль".equals(legacy)) {
                 togglePriceExtra(session.state(), EX_LOW_PROFILE);
             }
-            UserSession next = nextStep(session, "PRICE_EXTRA");
-            sessions.save(next);
-            renderPriceStep(next, target);
-            return true;
-        }
-        if (payload.startsWith("PRICE:EXTRA_TOGGLE:")) {
-            String code = payload.substring("PRICE:EXTRA_TOGGLE:".length());
-            togglePriceExtra(session.state(), code);
             sessions.save(session);
-            renderPriceStep(session, target);
-            return true;
-        }
-        if (payload.equals("PRICE:EXTRA:DONE")) {
-            ObjectNode pricing = loadPricingConfig();
-            int basePrice = estimatePriceBase(session.state(), pricing);
-            int extraPrice = estimateExtrasPrice(session.state(), pricing);
-            int total = basePrice + extraPrice;
-            String details = buildPriceResultText(session.state(), pricing, basePrice, extraPrice, total);
-
-            sendMessage(target,
-                    details,
-                    List.of(
-                            MessageFactory.row(messages.callback("✅ Записаться", "ACT:BOOK"), messages.callback("📍 Филиалы", "ACT:BRANCH")),
-                            MessageFactory.row(messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"))
-                    ),
-                    true);
-            sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
+            if (callbackMessageId != null && !callbackMessageId.isBlank()) {
+                editPriceExtraMessage(callbackMessageId, session);
+            } else {
+                renderPriceStep(session, target);
+            }
             return true;
         }
 
@@ -1724,7 +1764,38 @@ public final class BotService {
                 List<Branch> list = branches.findAll();
                 sendAdminBranchRemovePicker(target, list);
             }
-            case "AD_PRICE_EDIT_INPUT" -> sendAdminMessage(target, buildPricingAdminHelp(loadPricingConfig()), List.of(), true);
+            case "AD_PRICE_CATEGORY" -> sendAdminMessage(target,
+                    "💸 Изменение цен\nВыберите раздел:",
+                    List.of(
+                            MessageFactory.row(messages.callback("🚙 Седан", "ADM:PRICE:CAT:" + PRICE_CAT_SEDAN)),
+                            MessageFactory.row(messages.callback("🚘 Кроссовер / Внедорожник / Минивен", "ADM:PRICE:CAT:" + PRICE_CAT_SUV)),
+                            MessageFactory.row(messages.callback("🚚 Коммерческий", "ADM:PRICE:CAT:" + PRICE_CAT_COMM)),
+                            MessageFactory.row(messages.callback("🧩 Доп. услуги", "ADM:PRICE:CAT:" + PRICE_CAT_EXTRA)),
+                            MessageFactory.row(messages.callback("⬅️ Назад", "ADM:REFRESH"))
+                    ),
+                    true);
+            case "AD_PRICE_ITEM_PICK" -> {
+                ObjectNode pricing = loadPricingConfig();
+                String category = session.state().path("price_category").asText("");
+                sendAdminMessage(target,
+                        "💸 Выберите позицию:",
+                        buildPriceItemRows(category, pricing),
+                        true);
+            }
+            case "AD_PRICE_VALUE_INPUT" -> {
+                ObjectNode pricing = loadPricingConfig();
+                String key = session.state().path("price_key").asText("");
+                int oldPrice = pricing.path(key).asInt(0);
+                String label = priceItemLabel(key);
+                sendAdminMessage(target,
+                        "🧾 Позиция: *" + label + "*\n"
+                                + "Текущая цена: *" + oldPrice + " ₽*\n"
+                                + "Введите новую цену (только число):",
+                        List.of(
+                                MessageFactory.row(messages.callback("⬅️ Назад", "ADM:PRICE:BACK:ITEMS"))
+                        ),
+                        true);
+            }
             default -> renderAdminStep(new UserSession(session.userId(), session.chatId(), SC_ADMIN, "AD_MENU", session.state(), session.history()), target);
         }
     }
@@ -1779,7 +1850,48 @@ public final class BotService {
             return true;
         }
         if ("ADM:PRICE:EDIT".equals(payload)) {
-            UserSession next = nextStep(session, "AD_PRICE_EDIT_INPUT");
+            session.state().remove("price_category");
+            session.state().remove("price_key");
+            UserSession next = nextStep(session, "AD_PRICE_CATEGORY");
+            sessions.save(next);
+            renderAdminStep(next, target);
+            return true;
+        }
+        if (payload.startsWith("ADM:PRICE:CAT:")) {
+            String category = payload.substring("ADM:PRICE:CAT:".length());
+            if (!Set.of(PRICE_CAT_SEDAN, PRICE_CAT_SUV, PRICE_CAT_COMM, PRICE_CAT_EXTRA).contains(category)) {
+                sendAdminMessage(target, "⚠️ Неизвестный раздел цен.", List.of(), true);
+                return true;
+            }
+            session.state().put("price_category", category);
+            session.state().remove("price_key");
+            UserSession next = nextStep(session, "AD_PRICE_ITEM_PICK");
+            sessions.save(next);
+            renderAdminStep(next, target);
+            return true;
+        }
+        if (payload.startsWith("ADM:PRICE:ITEM:")) {
+            String key = payload.substring("ADM:PRICE:ITEM:".length());
+            if (!defaultPricingKeys().contains(key)) {
+                sendAdminMessage(target, "⚠️ Неизвестная позиция цены.", List.of(), true);
+                return true;
+            }
+            session.state().put("price_key", key);
+            UserSession next = nextStep(session, "AD_PRICE_VALUE_INPUT");
+            sessions.save(next);
+            renderAdminStep(next, target);
+            return true;
+        }
+        if ("ADM:PRICE:BACK:CATEGORY".equals(payload)) {
+            session.state().remove("price_key");
+            UserSession next = nextStep(session, "AD_PRICE_CATEGORY");
+            sessions.save(next);
+            renderAdminStep(next, target);
+            return true;
+        }
+        if ("ADM:PRICE:BACK:ITEMS".equals(payload)) {
+            session.state().remove("price_key");
+            UserSession next = nextStep(session, "AD_PRICE_ITEM_PICK");
             sessions.save(next);
             renderAdminStep(next, target);
             return true;
@@ -1887,22 +1999,27 @@ public final class BotService {
                 renderAdminStep(next, target);
                 return true;
             }
-            case "AD_PRICE_EDIT_INPUT" -> {
-                ObjectNode config = loadPricingConfig();
-                PricingUpdateResult result = applyPricingUpdates(config, text);
-                if (!result.errors().isEmpty()) {
-                    sendAdminMessage(
-                            target,
-                            "⚠️ Не удалось обновить цены:\n" + String.join("\n", result.errors()) + "\n\n" + buildPricingAdminHelp(config),
-                            List.of(),
-                            true
-                    );
+            case "AD_PRICE_VALUE_INPUT" -> {
+                Integer newPrice = tryParseInt(text.trim());
+                if (newPrice == null || newPrice < 0) {
+                    sendAdminMessage(target, "⚠️ Нужна цена числом (например: 2420).", List.of(), true);
                     return true;
                 }
+                String key = session.state().path("price_key").asText("");
+                if (!defaultPricingKeys().contains(key)) {
+                    sendAdminMessage(target, "⚠️ Не выбрана позиция цены.", List.of(), true);
+                    UserSession next = nextStep(session, "AD_PRICE_CATEGORY");
+                    sessions.save(next);
+                    renderAdminStep(next, target);
+                    return true;
+                }
+                ObjectNode config = loadPricingConfig();
+                config.put(key, newPrice);
                 settings.setValue(KEY_PRICING_CONFIG, config.toString());
-                UserSession next = new UserSession(session.userId(), session.chatId(), SC_ADMIN, "AD_MENU", mapper.createObjectNode(), mapper.createArrayNode());
+                session.state().remove("price_key");
+                UserSession next = nextStep(session, "AD_PRICE_ITEM_PICK");
                 sessions.save(next);
-                sendAdminMessage(target, "✅ Цены обновлены. Изменено позиций: " + result.updatedCount(), List.of(), true);
+                sendAdminMessage(target, "✅ Цена обновлена: " + priceItemLabel(key) + " = " + newPrice + " ₽", List.of(), true);
                 renderAdminStep(next, target);
                 return true;
             }
@@ -2245,6 +2362,7 @@ public final class BotService {
         return "🏢 Филиал: " + branchNameByIdSafe(safe(state, "branch_id")) + "\n"
                 + "🚗 Авто: " + safe(state, "car_type") + ", " + safe(state, "car_brand") + "\n"
                 + "🛞 Диаметр: " + safe(state, "radius") + "\n"
+                + ("Коммерческий".equals(safe(state, "car_type")) ? "🚚 Колёса: " + safe(state, "wheel_count") + "\n" : "")
                 + "🧩 Доп. услуги: " + safe(state, "extra") + "\n"
                 + "📅 Дата/время: " + safe(state, "date") + ", " + safe(state, "time") + "\n"
                 + "👤 Клиент: " + safe(state, "name") + ", " + safe(state, "phone") + "\n"
@@ -2269,7 +2387,16 @@ public final class BotService {
     }
 
     private void sendPriceExtraStep(UserSession session, ChatTarget target) throws IOException {
-        Set<String> selected = getPriceExtras(session.state());
+        sendMessage(target, buildPriceExtraText(session.state()), buildPriceExtraRows(getPriceExtras(session.state())), true);
+    }
+
+    private void editPriceExtraMessage(String messageId, UserSession session) throws IOException {
+        ObjectNode message = messages.message(buildPriceExtraText(session.state()), buildPriceExtraRows(getPriceExtras(session.state())), true);
+        api.editMessage(messageId, message);
+    }
+
+    private String buildPriceExtraText(ObjectNode state) {
+        Set<String> selected = getPriceExtras(state);
         StringBuilder text = new StringBuilder("🧩 Выберите доп. услуги:\n");
         text.append("Можно выбрать несколько вариантов, затем нажмите *Готово*.");
 
@@ -2279,13 +2406,25 @@ public final class BotService {
                 text.append("• ").append(extraDisplayName(code)).append('\n');
             }
         }
+        return text.toString().trim();
+    }
 
-        sendMessage(
-                target,
-                text.toString().trim(),
-                buildPriceExtraRows(selected),
-                true
-        );
+    private boolean finishPriceFlow(UserSession session, ChatTarget target) throws SQLException, IOException {
+        ObjectNode pricing = loadPricingConfig();
+        int basePrice = estimatePriceBase(session.state(), pricing);
+        int extraPrice = estimateExtrasPrice(session.state(), pricing);
+        int total = basePrice + extraPrice;
+        String details = buildPriceResultText(session.state(), pricing, basePrice, extraPrice, total);
+
+        sendMessage(target,
+                details,
+                List.of(
+                        MessageFactory.row(messages.callback("✅ Записаться", "ACT:BOOK"), messages.callback("📍 Филиалы", "ACT:BRANCH")),
+                        MessageFactory.row(messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"))
+                ),
+                true);
+        sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
+        return true;
     }
 
     private List<List<ObjectNode>> buildDiameterRowsForCar(String carType) {
@@ -2539,6 +2678,59 @@ public final class BotService {
                 "COMMERCIAL_4", "COMMERCIAL_6",
                 "EXTRA_RUNFLAT", "EXTRA_LOW_PROFILE", "EXTRA_VALVES", "EXTRA_SEALANT", "EXTRA_HUB_LUBE", "EXTRA_GLUE_CLEAN"
         );
+    }
+
+    private List<List<ObjectNode>> buildPriceItemRows(String category, ObjectNode cfg) {
+        List<String> keys = switch (category) {
+            case PRICE_CAT_SEDAN -> List.of("SEDAN_R12_14", "SEDAN_R15", "SEDAN_R16", "SEDAN_R17", "SEDAN_R18", "SEDAN_R19", "SEDAN_R20", "SEDAN_R21", "SEDAN_R22_PLUS");
+            case PRICE_CAT_SUV -> List.of("SUV_R13_14", "SUV_R15", "SUV_R16", "SUV_R17", "SUV_R18", "SUV_R19", "SUV_R20", "SUV_R21", "SUV_R22_PLUS");
+            case PRICE_CAT_COMM -> List.of("COMMERCIAL_4", "COMMERCIAL_6");
+            case PRICE_CAT_EXTRA -> List.of("EXTRA_RUNFLAT", "EXTRA_LOW_PROFILE", "EXTRA_VALVES", "EXTRA_SEALANT", "EXTRA_HUB_LUBE", "EXTRA_GLUE_CLEAN");
+            default -> List.of();
+        };
+
+        List<List<ObjectNode>> rows = new ArrayList<>();
+        for (String key : keys) {
+            String label = priceItemLabel(key) + " — " + cfg.path(key).asInt(0) + " ₽";
+            rows.add(MessageFactory.row(messages.callback(label, "ADM:PRICE:ITEM:" + key)));
+        }
+        rows.add(MessageFactory.row(messages.callback("⬅️ Назад", "ADM:PRICE:BACK:CATEGORY")));
+        return rows;
+    }
+
+    private String priceItemLabel(String key) {
+        return switch (key) {
+            case "SEDAN_R12_14" -> "Седан R12-R14";
+            case "SEDAN_R15" -> "Седан R15";
+            case "SEDAN_R16" -> "Седан R16";
+            case "SEDAN_R17" -> "Седан R17";
+            case "SEDAN_R18" -> "Седан R18";
+            case "SEDAN_R19" -> "Седан R19";
+            case "SEDAN_R20" -> "Седан R20";
+            case "SEDAN_R21" -> "Седан R21";
+            case "SEDAN_R22_PLUS" -> "Седан R22+";
+
+            case "SUV_R13_14" -> "Кроссовер/SUV R13-R14";
+            case "SUV_R15" -> "Кроссовер/SUV R15";
+            case "SUV_R16" -> "Кроссовер/SUV R16";
+            case "SUV_R17" -> "Кроссовер/SUV R17";
+            case "SUV_R18" -> "Кроссовер/SUV R18";
+            case "SUV_R19" -> "Кроссовер/SUV R19";
+            case "SUV_R20" -> "Кроссовер/SUV R20";
+            case "SUV_R21" -> "Кроссовер/SUV R21";
+            case "SUV_R22_PLUS" -> "Кроссовер/SUV R22+";
+
+            case "COMMERCIAL_4" -> "Коммерческий (4 колеса)";
+            case "COMMERCIAL_6" -> "Коммерческий (6 колёс)";
+
+            case "EXTRA_RUNFLAT" -> "RunFlat";
+            case "EXTRA_LOW_PROFILE" -> "Низкий профиль (=<50)";
+            case "EXTRA_VALVES" -> "Замена вентилей";
+            case "EXTRA_SEALANT" -> "Очистка и нанесение герметика";
+            case "EXTRA_HUB_LUBE" -> "Медная/алюминиевая смазка ступиц";
+            case "EXTRA_GLUE_CLEAN" -> "Очистка дисков от старого клея";
+            default -> key;
+        };
     }
 
     private String buildPricingAdminHelp(ObjectNode cfg) {

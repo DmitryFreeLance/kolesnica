@@ -111,6 +111,25 @@ public final class MaxApiClient {
         }
     }
 
+    public void editMessage(String messageId, ObjectNode body) throws IOException {
+        HttpUrl url = HttpUrl.parse(baseUrl + "/messages").newBuilder()
+                .addQueryParameter("message_id", messageId)
+                .build();
+
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", token)
+                .header("Content-Type", "application/json")
+                .put(RequestBody.create(body.toString(), JSON))
+                .build();
+
+        try (Response response = http.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Ошибка PUT /messages: HTTP " + response.code() + " body=" + readBody(response.body()));
+            }
+        }
+    }
+
     public void answerCallback(String callbackId, String notification) throws IOException {
         HttpUrl url = HttpUrl.parse(baseUrl + "/answers").newBuilder()
                 .addQueryParameter("callback_id", callbackId)
