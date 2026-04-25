@@ -57,6 +57,7 @@ public final class BotService {
     private static final String PRICE_CAT_SUV = "SUV";
     private static final String PRICE_CAT_COMM = "COMM";
     private static final String PRICE_CAT_EXTRA = "EXTRA";
+    private static final String PRICE_CAT_SERVICE = "SERVICE";
 
     private static final Pattern PHONE_PATTERN = Pattern.compile("^[+0-9()\\-\\s]{6,20}$");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
@@ -415,7 +416,7 @@ public final class BotService {
             return handleBranchText(session, target, text);
         }
         if (SC_PRICE.equals(session.scenario())) {
-            return false;
+            return handlePriceText(session, target, text);
         }
         if (SC_STORAGE.equals(session.scenario())) {
             return handleStorageText(session, target, text);
@@ -484,11 +485,20 @@ public final class BotService {
                             MessageFactory.row(messages.callback("🤷 Не знаю", "BOOK:RAD:Не знаю"))
                     ), true);
             case "BOOK_EXTRA" -> sendMessage(target,
-                    "🧩 Нужны доп. услуги?",
+                    "🧩 Нужны доп. услуги?\n"
+                            + "В стоимость переобувки уже входит:\n"
+                            + "• Съём/установка колёс\n"
+                            + "• Технологическая мойка колёс\n"
+                            + "• Шиномонтаж\n"
+                            + "• Балансировка",
                     List.of(
-                            MessageFactory.row(messages.callback("🚫 Нет", "BOOK:EXTRA:Нет"), messages.callback("⚖️ Балансировка", "BOOK:EXTRA:Балансировка")),
-                            MessageFactory.row(messages.callback("🛍️ Пакеты", "BOOK:EXTRA:Пакеты"), messages.callback("🚿 Мойка", "BOOK:EXTRA:Мойка")),
-                            MessageFactory.row(messages.callback("📦 Хранение", "BOOK:EXTRA:Хранение"), messages.callback("💬 Консультация", "BOOK:EXTRA:Консультация"))
+                            MessageFactory.row(messages.callback("🚫 Без допов", "BOOK:EXTRA:Без допов")),
+                            MessageFactory.row(messages.callback("⚙️ RunFlat", "BOOK:EXTRA:RunFlat")),
+                            MessageFactory.row(messages.callback("🏎️ Низкий профиль (=<50)", "BOOK:EXTRA:Низкий профиль (=<50)")),
+                            MessageFactory.row(messages.callback("🛠️ Замена вентилей", "BOOK:EXTRA:Замена вентилей")),
+                            MessageFactory.row(messages.callback("🧴 Очистка и нанесение герметика", "BOOK:EXTRA:Очистка и нанесение герметика")),
+                            MessageFactory.row(messages.callback("🛞 Смазка ступиц (медь/алюминий)", "BOOK:EXTRA:Медная или алюминиевая смазка ступиц")),
+                            MessageFactory.row(messages.callback("🧽 Очистка дисков от старого клея", "BOOK:EXTRA:Очистка дисков от старого клея"))
                     ), true);
             case "BOOK_BRANCH_METHOD" -> {
                 List<List<ObjectNode>> rows = new ArrayList<>();
@@ -1081,6 +1091,10 @@ public final class BotService {
                             MessageFactory.row(messages.callback("6 колёс", "PRICE:WHEELS:6"))
                     ),
                     true);
+            case "PRICE_PROBLEM_TEXT" -> sendMessage(target,
+                    "🛠️ Опишите проблему, чтобы мы рассчитали точную цену.\nНапример: где повреждение, как давно, есть ли фото.",
+                    List.of(),
+                    true);
             case "PRICE_EXTRA" -> sendPriceExtraStep(session, target);
             default -> sendMainMenu(target, true);
         }
@@ -1088,7 +1102,29 @@ public final class BotService {
 
     private boolean handlePriceCallback(UserSession session, ChatTarget target, String payload, String callbackMessageId) throws SQLException, IOException {
         if (payload.startsWith("PRICE:SERVICE:")) {
-            return priceSelect(session, target, "service", payload.substring("PRICE:SERVICE:".length()), "PRICE_CAR");
+            String service = payload.substring("PRICE:SERVICE:".length());
+            session.state().put("service", service);
+            session.state().remove("car_type");
+            session.state().remove("wheel_count");
+            session.state().remove("radius");
+            clearPriceExtras(session.state());
+
+            if ("Ремонт".equals(service) || "Правка".equals(service)) {
+                UserSession next = nextStep(session, "PRICE_PROBLEM_TEXT");
+                sessions.save(next);
+                renderPriceStep(next, target);
+                return true;
+            }
+            if ("Балансировка".equals(service)) {
+                return sendBalancingPriceAndFinish(session, target);
+            }
+            if ("Хранение".equals(service)) {
+                return sendStoragePriceAndFinish(session, target);
+            }
+            UserSession next = nextStep(session, "PRICE_CAR");
+            sessions.save(next);
+            renderPriceStep(next, target);
+            return true;
         }
         if (payload.startsWith("PRICE:CAR:")) {
             String carType = payload.substring("PRICE:CAR:".length());
@@ -1162,6 +1198,62 @@ public final class BotService {
         }
 
         return false;
+    }
+
+    private boolean handlePriceText(UserSession session, ChatTarget target, String text) throws SQLException, IOException {
+        if ("PRICE_PROBLEM_TEXT".equals(session.step())) {
+            session.state().put("problem", text);
+            ObjectNode payload = session.state().deepCopy();
+            payload.put("scenario", "price_problem");
+            requests.saveRequest(session.userId(), session.chatId(), "price_problem", payload);
+            notifyAdmins(
+                    "🛠️ Запрос на расчёт цены\n"
+                            + "Услуга: " + safe(session.state(), "service") + "\n"
+                            + "Описание: " + safe(session.state(), "problem") + "\n"
+                            + "Пользователь ID: " + session.userId()
+            );
+            sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
+            sendMessage(
+                    target,
+                    "✅ Спасибо! Передали запрос специалисту.\nСкоро с вами свяжемся с точной оценкой.",
+                    List.of(MessageFactory.row(messages.callback("🏠 В меню", "NAV:MENU"))),
+                    false
+            );
+            return true;
+        }
+        return false;
+    }
+
+    private boolean sendBalancingPriceAndFinish(UserSession session, ChatTarget target) throws SQLException, IOException {
+        ObjectNode pricing = loadPricingConfig();
+        int price = pricing.path("BALANCING_BASE").asInt(500);
+        sendMessage(
+                target,
+                "💸 Балансировка: *" + price + " ₽*",
+                List.of(
+                        MessageFactory.row(messages.callback("✅ Записаться", "ACT:BOOK"), messages.callback("📍 Филиалы", "ACT:BRANCH")),
+                        MessageFactory.row(messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"))
+                ),
+                true
+        );
+        sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
+        return true;
+    }
+
+    private boolean sendStoragePriceAndFinish(UserSession session, ChatTarget target) throws SQLException, IOException {
+        ObjectNode pricing = loadPricingConfig();
+        int perDay = pricing.path("STORAGE_PER_DAY").asInt(50);
+        sendMessage(
+                target,
+                "💸 Хранение: *" + perDay + " ₽/день*",
+                List.of(
+                        MessageFactory.row(messages.callback("📦 Оформить хранение", "ACT:STORAGE")),
+                        MessageFactory.row(messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"))
+                ),
+                true
+        );
+        sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
+        return true;
     }
 
     private boolean priceSelect(UserSession session, ChatTarget target, String key, String value, String nextStep) throws SQLException, IOException {
@@ -1770,6 +1862,7 @@ public final class BotService {
                             MessageFactory.row(messages.callback("🚙 Седан", "ADM:PRICE:CAT:" + PRICE_CAT_SEDAN)),
                             MessageFactory.row(messages.callback("🚘 Кроссовер / Внедорожник / Минивен", "ADM:PRICE:CAT:" + PRICE_CAT_SUV)),
                             MessageFactory.row(messages.callback("🚚 Коммерческий", "ADM:PRICE:CAT:" + PRICE_CAT_COMM)),
+                            MessageFactory.row(messages.callback("⚙️ Прочие услуги", "ADM:PRICE:CAT:" + PRICE_CAT_SERVICE)),
                             MessageFactory.row(messages.callback("🧩 Доп. услуги", "ADM:PRICE:CAT:" + PRICE_CAT_EXTRA)),
                             MessageFactory.row(messages.callback("⬅️ Назад", "ADM:REFRESH"))
                     ),
@@ -1859,7 +1952,7 @@ public final class BotService {
         }
         if (payload.startsWith("ADM:PRICE:CAT:")) {
             String category = payload.substring("ADM:PRICE:CAT:".length());
-            if (!Set.of(PRICE_CAT_SEDAN, PRICE_CAT_SUV, PRICE_CAT_COMM, PRICE_CAT_EXTRA).contains(category)) {
+            if (!Set.of(PRICE_CAT_SEDAN, PRICE_CAT_SUV, PRICE_CAT_COMM, PRICE_CAT_SERVICE, PRICE_CAT_EXTRA).contains(category)) {
                 sendAdminMessage(target, "⚠️ Неизвестный раздел цен.", List.of(), true);
                 return true;
             }
@@ -2582,6 +2675,7 @@ public final class BotService {
     }
 
     private String buildPriceResultText(ObjectNode state, ObjectNode pricing, int basePrice, int extrasPrice, int total) {
+        String service = safe(state, "service");
         StringBuilder text = new StringBuilder();
         text.append("💸 Итоговая стоимость: *").append(total).append(" ₽*");
         if (extrasPrice > 0) {
@@ -2589,11 +2683,13 @@ public final class BotService {
             text.append("\nДоп. услуги: +").append(extrasPrice).append(" ₽");
         }
 
-        text.append("\n\nВ стоимость входит:\n");
-        text.append("• Съём/установка колёс\n");
-        text.append("• Технологическая мойка колёс\n");
-        text.append("• Шиномонтаж\n");
-        text.append("• Балансировка");
+        if ("Переобувка".equals(service)) {
+            text.append("\n\nВ стоимость входит:\n");
+            text.append("• Съём/установка колёс\n");
+            text.append("• Технологическая мойка колёс\n");
+            text.append("• Шиномонтаж\n");
+            text.append("• Балансировка");
+        }
 
         Set<String> selected = getPriceExtras(state);
         text.append("\n\nДоп. услуги:\n");
@@ -2661,6 +2757,8 @@ public final class BotService {
 
         cfg.put("COMMERCIAL_4", 3920);
         cfg.put("COMMERCIAL_6", 5380);
+        cfg.put("BALANCING_BASE", 500);
+        cfg.put("STORAGE_PER_DAY", 50);
 
         cfg.put("EXTRA_RUNFLAT", 400);
         cfg.put("EXTRA_LOW_PROFILE", 400);
@@ -2676,6 +2774,7 @@ public final class BotService {
                 "SEDAN_R12_14", "SEDAN_R15", "SEDAN_R16", "SEDAN_R17", "SEDAN_R18", "SEDAN_R19", "SEDAN_R20", "SEDAN_R21", "SEDAN_R22_PLUS",
                 "SUV_R13_14", "SUV_R15", "SUV_R16", "SUV_R17", "SUV_R18", "SUV_R19", "SUV_R20", "SUV_R21", "SUV_R22_PLUS",
                 "COMMERCIAL_4", "COMMERCIAL_6",
+                "BALANCING_BASE", "STORAGE_PER_DAY",
                 "EXTRA_RUNFLAT", "EXTRA_LOW_PROFILE", "EXTRA_VALVES", "EXTRA_SEALANT", "EXTRA_HUB_LUBE", "EXTRA_GLUE_CLEAN"
         );
     }
@@ -2685,6 +2784,7 @@ public final class BotService {
             case PRICE_CAT_SEDAN -> List.of("SEDAN_R12_14", "SEDAN_R15", "SEDAN_R16", "SEDAN_R17", "SEDAN_R18", "SEDAN_R19", "SEDAN_R20", "SEDAN_R21", "SEDAN_R22_PLUS");
             case PRICE_CAT_SUV -> List.of("SUV_R13_14", "SUV_R15", "SUV_R16", "SUV_R17", "SUV_R18", "SUV_R19", "SUV_R20", "SUV_R21", "SUV_R22_PLUS");
             case PRICE_CAT_COMM -> List.of("COMMERCIAL_4", "COMMERCIAL_6");
+            case PRICE_CAT_SERVICE -> List.of("BALANCING_BASE", "STORAGE_PER_DAY");
             case PRICE_CAT_EXTRA -> List.of("EXTRA_RUNFLAT", "EXTRA_LOW_PROFILE", "EXTRA_VALVES", "EXTRA_SEALANT", "EXTRA_HUB_LUBE", "EXTRA_GLUE_CLEAN");
             default -> List.of();
         };
@@ -2722,6 +2822,8 @@ public final class BotService {
 
             case "COMMERCIAL_4" -> "Коммерческий (4 колеса)";
             case "COMMERCIAL_6" -> "Коммерческий (6 колёс)";
+            case "BALANCING_BASE" -> "Балансировка (базовая)";
+            case "STORAGE_PER_DAY" -> "Хранение (за день)";
 
             case "EXTRA_RUNFLAT" -> "RunFlat";
             case "EXTRA_LOW_PROFILE" -> "Низкий профиль (=<50)";
