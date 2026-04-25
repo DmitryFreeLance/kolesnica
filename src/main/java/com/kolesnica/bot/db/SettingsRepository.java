@@ -16,9 +16,17 @@ public final class SettingsRepository {
     }
 
     public String getOperatorPhone() throws SQLException {
+        return getValue(KEY_OPERATOR_PHONE, DEFAULT_OPERATOR_PHONE);
+    }
+
+    public void setOperatorPhone(String phone) throws SQLException {
+        setValue(KEY_OPERATOR_PHONE, phone);
+    }
+
+    public String getValue(String key, String fallback) throws SQLException {
         String sql = "SELECT value FROM settings WHERE key = ?";
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, KEY_OPERATOR_PHONE);
+            ps.setString(1, key);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     String value = rs.getString("value");
@@ -28,17 +36,17 @@ public final class SettingsRepository {
                 }
             }
         }
-        return DEFAULT_OPERATOR_PHONE;
+        return fallback;
     }
 
-    public void setOperatorPhone(String phone) throws SQLException {
+    public void setValue(String key, String value) throws SQLException {
         String sql = """
                 INSERT INTO settings(key, value) VALUES (?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 """;
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, KEY_OPERATOR_PHONE);
-            ps.setString(2, phone);
+            ps.setString(1, key);
+            ps.setString(2, value);
             ps.executeUpdate();
         }
     }
