@@ -72,13 +72,11 @@ public final class MessageFactory {
     }
 
     public List<List<ObjectNode>> userNavigationRows() {
-        List<List<ObjectNode>> rows = new ArrayList<>();
-        rows.add(List.of(
-                callback("⬅️ Назад", "NAV:BACK"),
-                callback("👩‍💼 Оператор", "NAV:OPERATOR")
-        ));
-        rows.add(List.of(callback("🏠 Главное меню", "NAV:MENU")));
-        return rows;
+        return List.of(
+                List.of(callback("⬅️ Назад", "NAV:BACK")),
+                List.of(callback("👩‍💼 Оператор", "NAV:OPERATOR")),
+                List.of(callback("🏠 Главное меню", "NAV:MENU"))
+        );
     }
 
     public List<List<ObjectNode>> adminNavigationRows() {
@@ -88,7 +86,6 @@ public final class MessageFactory {
     public List<ObjectNode> navigationRow() {
         List<ObjectNode> row = new ArrayList<>();
         row.add(callback("⬅️ Назад", "NAV:BACK"));
-        row.add(callback("👩‍💼 Оператор", "NAV:OPERATOR"));
         return row;
     }
 

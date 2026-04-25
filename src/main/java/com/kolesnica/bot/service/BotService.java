@@ -38,6 +38,7 @@ public final class BotService {
     private static final String SC_BRANCH = "branch_finder";
     private static final String SC_PRICE = "price";
     private static final String SC_STORAGE = "storage";
+    private static final String SC_AC = "ac_refill";
     private static final String SC_FEEDBACK = "feedback";
     private static final String SC_OPERATOR = "operator";
     private static final String SC_ADMIN = "admin";
@@ -54,10 +55,13 @@ public final class BotService {
     private static final String EX_GLUE_CLEAN = "GLUE_CLEAN";
 
     private static final String PRICE_CAT_SEDAN = "SEDAN";
+    private static final String PRICE_CAT_CROSSOVER = "CROSSOVER";
     private static final String PRICE_CAT_SUV = "SUV";
+    private static final String PRICE_CAT_MINIVAN = "MINIVAN";
     private static final String PRICE_CAT_COMM = "COMM";
     private static final String PRICE_CAT_EXTRA = "EXTRA";
     private static final String PRICE_CAT_SERVICE = "SERVICE";
+    private static final String PRICE_CAT_STORAGE = "STORAGE";
 
     private static final Pattern PHONE_PATTERN = Pattern.compile("^[+0-9()\\-\\s]{6,20}$");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
@@ -233,13 +237,15 @@ public final class BotService {
 
         boolean handled = false;
         if (SC_BOOKING.equals(session.scenario())) {
-            handled = handleBookingCallback(session, target, payload);
+            handled = handleBookingCallback(session, target, payload, callbackMessageId);
         } else if (SC_BRANCH.equals(session.scenario())) {
             handled = handleBranchCallback(session, target, payload);
         } else if (SC_PRICE.equals(session.scenario())) {
             handled = handlePriceCallback(session, target, payload, callbackMessageId);
         } else if (SC_STORAGE.equals(session.scenario())) {
             handled = handleStorageCallback(session, target, payload);
+        } else if (SC_AC.equals(session.scenario())) {
+            handled = handleAcCallback(session, target, payload);
         } else if (SC_FEEDBACK.equals(session.scenario())) {
             handled = handleFeedbackCallback(session, target, payload);
         } else if (SC_OPERATOR.equals(session.scenario())) {
@@ -294,6 +300,7 @@ public final class BotService {
             case "ACT:BRANCH" -> startScenario(SC_BRANCH, session, target);
             case "ACT:PRICE" -> startScenario(SC_PRICE, session, target);
             case "ACT:STORAGE" -> startScenario(SC_STORAGE, session, target);
+            case "ACT:AC" -> startScenario(SC_AC, session, target);
             case "ACT:FEEDBACK" -> startScenario(SC_FEEDBACK, session, target);
             case "ACT:OPERATOR" -> {
                 sendOperatorContact(target);
@@ -335,6 +342,11 @@ public final class BotService {
                 sessions.save(next);
                 renderStorageStep(next, target);
             }
+            case SC_AC -> {
+                UserSession next = new UserSession(session.userId(), session.chatId(), SC_AC, "AC_MODE", mapper.createObjectNode(), mapper.createArrayNode());
+                sessions.save(next);
+                renderAcStep(next, target);
+            }
             case SC_FEEDBACK -> {
                 UserSession next = new UserSession(session.userId(), session.chatId(), SC_FEEDBACK, "FB_TYPE", mapper.createObjectNode(), mapper.createArrayNode());
                 sessions.save(next);
@@ -365,6 +377,7 @@ public final class BotService {
             case SC_BRANCH -> renderBranchStep(session, target);
             case SC_PRICE -> renderPriceStep(session, target);
             case SC_STORAGE -> renderStorageStep(session, target);
+            case SC_AC -> renderAcStep(session, target);
             case SC_FEEDBACK -> renderFeedbackStep(session, target);
             case SC_OPERATOR -> renderOperatorStep(session, target);
             case SC_ADMIN -> renderAdminStep(session, target);
@@ -421,6 +434,9 @@ public final class BotService {
         if (SC_STORAGE.equals(session.scenario())) {
             return handleStorageText(session, target, text);
         }
+        if (SC_AC.equals(session.scenario())) {
+            return handleAcText(session, target, text);
+        }
         if (SC_FEEDBACK.equals(session.scenario())) {
             return handleFeedbackText(session, target, text);
         }
@@ -443,6 +459,7 @@ public final class BotService {
                 MessageFactory.row(messages.callback("📍 Найти ближайший филиал", "ACT:BRANCH")),
                 MessageFactory.row(messages.callback("💸 Узнать цену", "ACT:PRICE")),
                 MessageFactory.row(messages.callback("📦 Хранение шин", "ACT:STORAGE")),
+                MessageFactory.row(messages.callback("❄️ Заправка автокондиционеров", "ACT:AC")),
                 MessageFactory.row(messages.callback("📝 Отзыв / жалоба", "ACT:FEEDBACK")),
                 MessageFactory.row(messages.callback("👩‍💼 Связь с оператором", "ACT:OPERATOR"))
         );
@@ -484,22 +501,7 @@ public final class BotService {
                             ),
                             MessageFactory.row(messages.callback("🤷 Не знаю", "BOOK:RAD:Не знаю"))
                     ), true);
-            case "BOOK_EXTRA" -> sendMessage(target,
-                    "🧩 Нужны доп. услуги?\n"
-                            + "В стоимость переобувки уже входит:\n"
-                            + "• Съём/установка колёс\n"
-                            + "• Технологическая мойка колёс\n"
-                            + "• Шиномонтаж\n"
-                            + "• Балансировка",
-                    List.of(
-                            MessageFactory.row(messages.callback("🚫 Без допов", "BOOK:EXTRA:Без допов")),
-                            MessageFactory.row(messages.callback("⚙️ RunFlat", "BOOK:EXTRA:RunFlat")),
-                            MessageFactory.row(messages.callback("🏎️ Низкий профиль (=<50)", "BOOK:EXTRA:Низкий профиль (=<50)")),
-                            MessageFactory.row(messages.callback("🛠️ Замена вентилей", "BOOK:EXTRA:Замена вентилей")),
-                            MessageFactory.row(messages.callback("🧴 Очистка и нанесение герметика", "BOOK:EXTRA:Очистка и нанесение герметика")),
-                            MessageFactory.row(messages.callback("🛞 Смазка ступиц (медь/алюминий)", "BOOK:EXTRA:Медная или алюминиевая смазка ступиц")),
-                            MessageFactory.row(messages.callback("🧽 Очистка дисков от старого клея", "BOOK:EXTRA:Очистка дисков от старого клея"))
-                    ), true);
+            case "BOOK_EXTRA" -> sendBookingExtraStep(session, target);
             case "BOOK_BRANCH_METHOD" -> {
                 List<List<ObjectNode>> rows = new ArrayList<>();
                 if (session.state().has("preferred_branch_id")) {
@@ -587,7 +589,7 @@ public final class BotService {
         }
     }
 
-    private boolean handleBookingCallback(UserSession session, ChatTarget target, String payload) throws SQLException, IOException {
+    private boolean handleBookingCallback(UserSession session, ChatTarget target, String payload, String callbackMessageId) throws SQLException, IOException {
         if (payload.startsWith("BOOK:CAR:")) {
             String carType = payload.substring("BOOK:CAR:".length());
             session.state().put("car_type", carType);
@@ -621,8 +623,43 @@ public final class BotService {
         if (payload.startsWith("BOOK:RAD:")) {
             return bookingSelect(session, target, "radius", payload.substring("BOOK:RAD:".length()), "BOOK_EXTRA");
         }
+        if (payload.equals("BOOK:EXTRA:DONE")) {
+            return finalizeBookingExtras(session, target);
+        }
+        if (payload.startsWith("BOOK:EXTRA_TOGGLE:")) {
+            String code = payload.substring("BOOK:EXTRA_TOGGLE:".length());
+            toggleBookingExtra(session.state(), code);
+            sessions.save(session);
+            try {
+                if (callbackMessageId != null && !callbackMessageId.isBlank()) {
+                    editBookingExtraMessage(callbackMessageId, session);
+                } else {
+                    sendBookingExtraStep(session, target);
+                }
+            } catch (IOException e) {
+                log.warn("Не удалось обновить сообщение выбора допов booking: {}", e.getMessage());
+                sendBookingExtraStep(session, target);
+            }
+            return true;
+        }
         if (payload.startsWith("BOOK:EXTRA:")) {
-            return bookingSelect(session, target, "extra", payload.substring("BOOK:EXTRA:".length()), "BOOK_BRANCH_METHOD");
+            String legacy = payload.substring("BOOK:EXTRA:".length());
+            clearBookingExtras(session.state());
+            String code = switch (legacy) {
+                case "Без допов", "Нет" -> EX_NONE;
+                case "RunFlat" -> EX_RUNFLAT;
+                case "Низкий профиль", "Низкий профиль (=<50)" -> EX_LOW_PROFILE;
+                case "Замена вентилей" -> EX_VALVES;
+                case "Очистка и нанесение герметика" -> EX_SEALANT;
+                case "Медная или алюминиевая смазка ступиц" -> EX_HUB_LUBE;
+                case "Очистка дисков от старого клея" -> EX_GLUE_CLEAN;
+                default -> null;
+            };
+            if (code != null) {
+                toggleBookingExtra(session.state(), code);
+            }
+            sessions.save(session);
+            return finalizeBookingExtras(session, target);
         }
         if (payload.equals("BOOK:BRANCH:USE_PREFERRED")) {
             long id = session.state().path("preferred_branch_id").asLong(0);
@@ -865,6 +902,125 @@ public final class BotService {
                 List.of(
                         MessageFactory.row(messages.callback("✅ Подтвердить", "BOOK:CONFIRM"), messages.callback("✏️ Изменить", "BOOK:EDIT_PICK"))
                 ), true);
+    }
+
+    private void sendBookingExtraStep(UserSession session, ChatTarget target) throws IOException {
+        sendMessage(
+                target,
+                buildBookingExtraText(session.state()),
+                buildBookingExtraRows(getBookingExtras(session.state())),
+                true
+        );
+    }
+
+    private void editBookingExtraMessage(String messageId, UserSession session) throws IOException {
+        ObjectNode message = messages.message(
+                buildBookingExtraText(session.state()),
+                buildBookingExtraRows(getBookingExtras(session.state())),
+                true
+        );
+        api.editMessage(messageId, message);
+    }
+
+    private String buildBookingExtraText(ObjectNode state) {
+        Set<String> selected = getBookingExtras(state);
+        StringBuilder text = new StringBuilder("🧩 Нужны доп. услуги?\n");
+        text.append("В стоимость переобувки уже входит:\n");
+        text.append("• Съём/установка колёс\n");
+        text.append("• Технологическая мойка колёс\n");
+        text.append("• Шиномонтаж\n");
+        text.append("• Балансировка\n");
+        text.append("\nМожно выбрать несколько вариантов, затем нажмите *Готово*.");
+
+        if (!selected.isEmpty()) {
+            text.append("\n\nВыбрано:\n");
+            for (String code : selected) {
+                text.append("• ").append(extraDisplayName(code)).append('\n');
+            }
+        }
+        return text.toString().trim();
+    }
+
+    private List<List<ObjectNode>> buildBookingExtraRows(Set<String> selected) {
+        List<List<ObjectNode>> rows = new ArrayList<>();
+        rows.add(MessageFactory.row(messages.callback(extraButtonText(EX_RUNFLAT, selected), "BOOK:EXTRA_TOGGLE:" + EX_RUNFLAT)));
+        rows.add(MessageFactory.row(messages.callback(extraButtonText(EX_LOW_PROFILE, selected), "BOOK:EXTRA_TOGGLE:" + EX_LOW_PROFILE)));
+        rows.add(MessageFactory.row(messages.callback(extraButtonText(EX_VALVES, selected), "BOOK:EXTRA_TOGGLE:" + EX_VALVES)));
+        rows.add(MessageFactory.row(messages.callback(extraButtonText(EX_SEALANT, selected), "BOOK:EXTRA_TOGGLE:" + EX_SEALANT)));
+        rows.add(MessageFactory.row(messages.callback(extraButtonText(EX_HUB_LUBE, selected), "BOOK:EXTRA_TOGGLE:" + EX_HUB_LUBE)));
+        rows.add(MessageFactory.row(messages.callback(extraButtonText(EX_GLUE_CLEAN, selected), "BOOK:EXTRA_TOGGLE:" + EX_GLUE_CLEAN)));
+        rows.add(MessageFactory.row(messages.callback(extraButtonText(EX_NONE, selected), "BOOK:EXTRA_TOGGLE:" + EX_NONE)));
+        rows.add(MessageFactory.row(messages.callback("✅ Готово", "BOOK:EXTRA:DONE")));
+        return rows;
+    }
+
+    private void toggleBookingExtra(ObjectNode state, String code) {
+        if (!Set.of(EX_NONE, EX_RUNFLAT, EX_LOW_PROFILE, EX_VALVES, EX_SEALANT, EX_HUB_LUBE, EX_GLUE_CLEAN).contains(code)) {
+            return;
+        }
+        Set<String> selected = getBookingExtras(state);
+        if (EX_NONE.equals(code)) {
+            if (selected.contains(EX_NONE)) {
+                selected.clear();
+            } else {
+                selected.clear();
+                selected.add(EX_NONE);
+            }
+        } else {
+            selected.remove(EX_NONE);
+            if (selected.contains(code)) {
+                selected.remove(code);
+            } else {
+                selected.add(code);
+            }
+        }
+        saveBookingExtras(state, selected);
+    }
+
+    private Set<String> getBookingExtras(ObjectNode state) {
+        Set<String> selected = new java.util.LinkedHashSet<>();
+        JsonNode node = state.path("booking_extras");
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                String code = item.asText("");
+                if (!code.isBlank()) {
+                    selected.add(code);
+                }
+            }
+        }
+        return selected;
+    }
+
+    private void saveBookingExtras(ObjectNode state, Set<String> selected) {
+        ArrayNode arr = mapper.createArrayNode();
+        for (String code : selected) {
+            arr.add(code);
+        }
+        state.set("booking_extras", arr);
+    }
+
+    private void clearBookingExtras(ObjectNode state) {
+        state.remove("booking_extras");
+    }
+
+    private boolean finalizeBookingExtras(UserSession session, ChatTarget target) throws SQLException, IOException {
+        Set<String> selected = getBookingExtras(session.state());
+        if (selected.isEmpty() || selected.contains(EX_NONE)) {
+            session.state().put("extra", "Без допов");
+        } else {
+            StringBuilder sb = new StringBuilder();
+            for (String code : selected) {
+                if (sb.length() > 0) {
+                    sb.append(", ");
+                }
+                sb.append(extraDisplayName(code));
+            }
+            session.state().put("extra", sb.toString());
+        }
+        UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_BRANCH_METHOD"));
+        sessions.save(next);
+        renderBookingStep(next, target);
+        return true;
     }
 
     private void handleNearestBookingBranch(UserSession session, ChatTarget target, double lat, double lon) throws SQLException, IOException {
@@ -1168,10 +1324,15 @@ public final class BotService {
 
             togglePriceExtra(session.state(), code);
             sessions.save(session);
-            if (callbackMessageId != null && !callbackMessageId.isBlank()) {
-                editPriceExtraMessage(callbackMessageId, session);
-            } else {
-                renderPriceStep(session, target);
+            try {
+                if (callbackMessageId != null && !callbackMessageId.isBlank()) {
+                    editPriceExtraMessage(callbackMessageId, session);
+                } else {
+                    sendPriceExtraStep(session, target);
+                }
+            } catch (IOException e) {
+                log.warn("Не удалось обновить сообщение выбора допов price: {}", e.getMessage());
+                sendPriceExtraStep(session, target);
             }
             return true;
         }
@@ -1189,10 +1350,15 @@ public final class BotService {
                 togglePriceExtra(session.state(), EX_LOW_PROFILE);
             }
             sessions.save(session);
-            if (callbackMessageId != null && !callbackMessageId.isBlank()) {
-                editPriceExtraMessage(callbackMessageId, session);
-            } else {
-                renderPriceStep(session, target);
+            try {
+                if (callbackMessageId != null && !callbackMessageId.isBlank()) {
+                    editPriceExtraMessage(callbackMessageId, session);
+                } else {
+                    sendPriceExtraStep(session, target);
+                }
+            } catch (IOException e) {
+                log.warn("Не удалось обновить legacy-сообщение выбора допов price: {}", e.getMessage());
+                sendPriceExtraStep(session, target);
             }
             return true;
         }
@@ -1242,10 +1408,23 @@ public final class BotService {
 
     private boolean sendStoragePriceAndFinish(UserSession session, ChatTarget target) throws SQLException, IOException {
         ObjectNode pricing = loadPricingConfig();
-        int perDay = pricing.path("STORAGE_PER_DAY").asInt(50);
+        String text = "💸 *Тарифы хранения шин*\n"
+                + "🧷 Без дисков:\n"
+                + "• R12-R16 — " + pricing.path("STORAGE_NO_DISK_R12_16").asInt(3000) + " ₽\n"
+                + "• R17-R19 — " + pricing.path("STORAGE_NO_DISK_R17_19").asInt(3300) + " ₽\n"
+                + "• R20+ — " + pricing.path("STORAGE_NO_DISK_R20_PLUS").asInt(3850) + " ₽\n\n"
+                + "🔩 На стальных дисках:\n"
+                + "• R12-R16 — " + pricing.path("STORAGE_STEEL_R12_16").asInt(3200) + " ₽\n"
+                + "• R17-R19 — " + pricing.path("STORAGE_STEEL_R17_19").asInt(4000) + " ₽\n"
+                + "• R20+ — " + pricing.path("STORAGE_STEEL_R20_PLUS").asInt(5200) + " ₽\n\n"
+                + "✨ На литых дисках:\n"
+                + "• R12-R16 — " + pricing.path("STORAGE_ALLOY_R12_16").asInt(4000) + " ₽\n"
+                + "• R17-R19 — " + pricing.path("STORAGE_ALLOY_R17_19").asInt(4400) + " ₽\n"
+                + "• R20+ — " + pricing.path("STORAGE_ALLOY_R20_PLUS").asInt(5200) + " ₽\n\n"
+                + "🚚 Заберем и привезем колеса на любой объект нашей сети";
         sendMessage(
                 target,
-                "💸 Хранение: *" + perDay + " ₽/день*",
+                text,
                 List.of(
                         MessageFactory.row(messages.callback("📦 Оформить хранение", "ACT:STORAGE")),
                         MessageFactory.row(messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"))
@@ -1269,24 +1448,25 @@ public final class BotService {
     private void renderStorageStep(UserSession session, ChatTarget target) throws SQLException, IOException {
         switch (session.step()) {
             case "ST_ACTION" -> sendMessageKeepRows(target,
-                    "📦 Хранение шин\nВыберите действие:",
+                    "📦 Хранение шин\nВыберите действие:\n"
+                            + "🚚 Заберем и привезем колеса на любой объект нашей сети",
                     List.of(
                             MessageFactory.row(messages.callback("📘 Условия", "ST:ACT:CONDITIONS"), messages.callback("💸 Стоимость", "ST:ACT:PRICE")),
                             MessageFactory.row(messages.callback("📥 Сдать", "ST:ACT:DROP"), messages.callback("📤 Забрать", "ST:ACT:PICK"))
                     ), true);
-            case "ST_PRICE_RADIUS" -> sendMessageKeepRows(target,
-                    "🛞 Выберите радиус шин:",
-                    List.of(
-                            MessageFactory.row(
-                                    messages.callback("R13-R15", "ST:PRAD:R13-R15"),
-                                    messages.callback("R16-R17", "ST:PRAD:R16-R17"),
-                                    messages.callback("R18+", "ST:PRAD:R18+")
-                            )
-                    ), true);
             case "ST_PRICE_TYPE" -> sendMessage(target,
-                    "📦 Тип хранения:",
+                    "📦 Выберите формат хранения:",
                     List.of(
-                            MessageFactory.row(messages.callback("👟 Сезонное", "ST:PTYPE:Сезонное"), messages.callback("🧰 Полный комплект", "ST:PTYPE:Полный комплект"))
+                            MessageFactory.row(messages.callback("🧷 Шины без дисков", "ST:PTYPE:NO_DISK")),
+                            MessageFactory.row(messages.callback("🔩 Шины на дисках (стальные)", "ST:PTYPE:STEEL")),
+                            MessageFactory.row(messages.callback("✨ Шины на дисках (литые)", "ST:PTYPE:ALLOY"))
+                    ), true);
+            case "ST_PRICE_RADIUS" -> sendMessageKeepRows(target,
+                    "🛞 Выберите диапазон диаметра:",
+                    List.of(
+                            MessageFactory.row(messages.callback("R12-R16", "ST:PRAD:R12_16")),
+                            MessageFactory.row(messages.callback("R17-R19", "ST:PRAD:R17_19")),
+                            MessageFactory.row(messages.callback("R20+", "ST:PRAD:R20_PLUS"))
                     ), true);
             case "ST_DROP_CITY" -> {
                 List<List<ObjectNode>> rows = new ArrayList<>();
@@ -1301,13 +1481,19 @@ public final class BotService {
                 for (String district : branches.listDistricts(city)) {
                     rows.add(MessageFactory.row(messages.callback("📍 " + district, "ST:DDIST:" + district)));
                 }
+                if (rows.isEmpty()) {
+                    UserSession next = nextStep(session, "ST_DROP_BRANCH");
+                    sessions.save(next);
+                    renderStorageStep(next, target);
+                    return;
+                }
                 sendMessage(target, "🗺️ Район сдачи шин:", rows, true);
             }
             case "ST_DROP_BRANCH" -> {
                 String city = session.state().path("drop_city").asText("");
                 String district = session.state().path("drop_district").asText("");
                 List<Branch> list = branches.findByFilters(city.isBlank() ? null : city, district.isBlank() ? null : district, null);
-                sendBranchPickerWithNumbers(target, "🏢 Выберите филиал для сдачи:", list, "ST:DBRANCH:");
+                sendBranchPickerWithNumbers(target, "🏢 Выберите адрес сдачи:", list, "ST:DBRANCH:");
             }
             case "ST_DROP_DATE" -> sendMessage(target,
                     "📅 Когда привезёте шины?",
@@ -1341,21 +1527,20 @@ public final class BotService {
                 for (String district : branches.listDistricts(city)) {
                     rows.add(MessageFactory.row(messages.callback("📍 " + district, "ST:PDIST:" + district)));
                 }
+                if (rows.isEmpty()) {
+                    UserSession next = nextStep(session, "ST_PICK_BRANCH");
+                    sessions.save(next);
+                    renderStorageStep(next, target);
+                    return;
+                }
                 sendMessage(target, "🗺️ Район филиала:", rows, true);
             }
             case "ST_PICK_BRANCH" -> {
                 String city = session.state().path("pick_city").asText("");
                 String district = session.state().path("pick_district").asText("");
                 List<Branch> list = branches.findByFilters(city.isBlank() ? null : city, district.isBlank() ? null : district, null);
-                sendBranchPickerWithNumbers(target, "🏢 Выберите филиал выдачи:", list, "ST:PBRANCH:");
+                sendBranchPickerWithNumbers(target, "🏢 Выберите адрес выдачи:", list, "ST:PBRANCH:");
             }
-            case "ST_PICK_DATE" -> sendMessage(target,
-                    "📅 Когда хотите забрать?",
-                    List.of(
-                            MessageFactory.row(messages.callback("🟢 Сегодня", "ST:PDATE:TODAY"), messages.callback("🟡 Завтра", "ST:PDATE:TOMORROW")),
-                            MessageFactory.row(messages.callback("🗓️ Другая дата", "ST:PDATE:CUSTOM"))
-                    ), true);
-            case "ST_PICK_DATE_INPUT" -> sendMessage(target, "✍️ Введите дату *дд.мм.гггг*", List.of(), true);
             case "ST_PICK_CONFIRM" -> sendStoragePickConfirm(session, target);
             default -> sendMainMenu(target, true);
         }
@@ -1367,7 +1552,8 @@ public final class BotService {
                     "📘 Условия хранения:\n"
                             + "• чистые и сухие шины\n"
                             + "• маркировка комплекта\n"
-                            + "• выдача по заявке",
+                            + "• выдача по заявке\n\n"
+                            + "🚚 Заберем и привезем колеса на любой объект нашей сети",
                     List.of(MessageFactory.row(messages.callback("↩️ К выбору", "ST:BACK:ACTION"))),
                     true);
             return true;
@@ -1379,7 +1565,9 @@ public final class BotService {
             return true;
         }
         if (payload.equals("ST:ACT:PRICE")) {
-            UserSession next = nextStep(session, "ST_PRICE_RADIUS");
+            session.state().remove("price_storage_type");
+            session.state().remove("price_radius");
+            UserSession next = nextStep(session, "ST_PRICE_TYPE");
             sessions.save(next);
             renderStorageStep(next, target);
             return true;
@@ -1397,19 +1585,36 @@ public final class BotService {
             return true;
         }
 
-        if (payload.startsWith("ST:PRAD:")) {
-            session.state().put("price_radius", payload.substring("ST:PRAD:".length()));
-            UserSession next = nextStep(session, "ST_PRICE_TYPE");
+        if (payload.startsWith("ST:PTYPE:")) {
+            String typeCode = payload.substring("ST:PTYPE:".length());
+            if (!Set.of("NO_DISK", "STEEL", "ALLOY").contains(typeCode)) {
+                sendMessage(target, "⚠️ Неизвестный формат хранения.", List.of(), true);
+                return true;
+            }
+            session.state().put("price_storage_type", typeCode);
+            UserSession next = nextStep(session, "ST_PRICE_RADIUS");
             sessions.save(next);
             renderStorageStep(next, target);
             return true;
         }
-        if (payload.startsWith("ST:PTYPE:")) {
-            String type = payload.substring("ST:PTYPE:".length());
-            String radius = safe(session.state(), "price_radius");
-            int value = estimateStoragePrice(radius, type);
+        if (payload.startsWith("ST:PRAD:")) {
+            String radiusCode = payload.substring("ST:PRAD:".length());
+            String typeCode = session.state().path("price_storage_type").asText("");
+            if (typeCode.isBlank()) {
+                UserSession next = nextStep(session, "ST_PRICE_TYPE");
+                sessions.save(next);
+                renderStorageStep(next, target);
+                return true;
+            }
+            ObjectNode pricing = loadPricingConfig();
+            String key = storagePriceKey(typeCode, radiusCode);
+            int value = pricing.path(key).asInt(0);
             sendMessage(target,
-                    "💸 Хранение " + type.toLowerCase(Locale.ROOT) + ": *от " + value + " ₽*",
+                    "💸 *Стоимость хранения*\n"
+                            + "Формат: " + storageTypeLabel(typeCode) + "\n"
+                            + "Диаметр: " + storageRadiusLabel(radiusCode) + "\n"
+                            + "Цена: *" + value + " ₽*\n\n"
+                            + "🚚 Заберем и привезем колеса на любой объект нашей сети",
                     List.of(
                             MessageFactory.row(messages.callback("📥 Сдать шины", "ST:ACT:DROP"), messages.callback("📤 Забрать шины", "ST:ACT:PICK"))
                     ),
@@ -1418,9 +1623,10 @@ public final class BotService {
         }
 
         if (payload.startsWith("ST:DCITY:")) {
-            session.state().put("drop_city", payload.substring("ST:DCITY:".length()));
+            String city = payload.substring("ST:DCITY:".length());
+            session.state().put("drop_city", city);
             session.state().remove("drop_district");
-            UserSession next = nextStep(session, "ST_DROP_DISTRICT");
+            UserSession next = nextStep(session, isVolzhsky(city) ? "ST_DROP_BRANCH" : "ST_DROP_DISTRICT");
             sessions.save(next);
             renderStorageStep(next, target);
             return true;
@@ -1477,9 +1683,10 @@ public final class BotService {
         }
 
         if (payload.startsWith("ST:PCITY:")) {
-            session.state().put("pick_city", payload.substring("ST:PCITY:".length()));
+            String city = payload.substring("ST:PCITY:".length());
+            session.state().put("pick_city", city);
             session.state().remove("pick_district");
-            UserSession next = nextStep(session, "ST_PICK_DISTRICT");
+            UserSession next = nextStep(session, isVolzhsky(city) ? "ST_PICK_BRANCH" : "ST_PICK_DISTRICT");
             sessions.save(next);
             renderStorageStep(next, target);
             return true;
@@ -1493,20 +1700,6 @@ public final class BotService {
         }
         if (payload.startsWith("ST:PBRANCH:")) {
             session.state().put("pick_branch", payload.substring("ST:PBRANCH:".length()));
-            UserSession next = nextStep(session, "ST_PICK_DATE");
-            sessions.save(next);
-            renderStorageStep(next, target);
-            return true;
-        }
-        if (payload.startsWith("ST:PDATE:")) {
-            String value = payload.substring("ST:PDATE:".length());
-            if ("CUSTOM".equals(value)) {
-                UserSession next = nextStep(session, "ST_PICK_DATE_INPUT");
-                sessions.save(next);
-                renderStorageStep(next, target);
-                return true;
-            }
-            session.state().put("pick_date", pickDateValue(value));
             UserSession next = nextStep(session, "ST_PICK_CONFIRM");
             sessions.save(next);
             renderStorageStep(next, target);
@@ -1518,7 +1711,10 @@ public final class BotService {
             requests.saveRequest(session.userId(), session.chatId(), "storage_pick", payloadJson);
             notifyAdmins("📤 Новая заявка на выдачу шин\n" + buildStoragePickAdminSummary(session.state()));
             sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
-            sendMessage(target, "✅ Заявка на выдачу шин зарегистрирована.", List.of(MessageFactory.row(messages.callback("🏠 В меню", "NAV:MENU"))), false);
+            sendMessage(target,
+                    "✅ Ваши колеса будут доставлены на выбранный адрес в течение 3 суток. По прибытию с вами свяжется сотрудник.",
+                    List.of(MessageFactory.row(messages.callback("🏠 В меню", "NAV:MENU"))),
+                    false);
             return true;
         }
 
@@ -1588,17 +1784,6 @@ public final class BotService {
                 renderStorageStep(next, target);
                 return true;
             }
-            case "ST_PICK_DATE_INPUT" -> {
-                if (!isValidDate(text)) {
-                    sendMessage(target, "📅 Нужен формат *дд.мм.гггг*", List.of(), true);
-                    return true;
-                }
-                session.state().put("pick_date", text);
-                UserSession next = nextStep(session, "ST_PICK_CONFIRM");
-                sessions.save(next);
-                renderStorageStep(next, target);
-                return true;
-            }
             default -> {
                 return false;
             }
@@ -1622,12 +1807,153 @@ public final class BotService {
                 + "👤 " + safe(session.state(), "pick_fio") + "\n"
                 + "📱 " + safe(session.state(), "pick_phone") + "\n"
                 + "🔢 " + safe(session.state(), "pick_contract") + "\n"
-                + "📅 " + safe(session.state(), "pick_date");
+                + "🏢 " + branchNameByIdSafe(safe(session.state(), "pick_branch"));
 
         sendMessage(target,
                 msg,
                 List.of(MessageFactory.row(messages.callback("✅ Подтвердить", "ST:PICK:CONFIRM"))),
                 true);
+    }
+
+    // ---------------- AC REFILL ----------------
+
+    private void renderAcStep(UserSession session, ChatTarget target) throws SQLException, IOException {
+        ObjectNode pricing = loadPricingConfig();
+        int base = pricing.path("AC_BASE_SERVICE").asInt(1100);
+        int perGram = pricing.path("AC_R134A_PER_GRAM").asInt(5);
+
+        switch (session.step()) {
+            case "AC_MODE" -> sendMessage(target,
+                    "❄️ *Заправка автокондиционеров*\n"
+                            + "Базовая услуга (подключение/вакуумация): *" + base + " ₽*\n"
+                            + "Фреон: *R134A* — *" + perGram + " ₽/г*\n\n"
+                            + "Выберите способ расчёта:",
+                    List.of(
+                            MessageFactory.row(messages.callback("✍️ Ввести граммы", "AC:MODE:INPUT")),
+                            MessageFactory.row(messages.callback("📊 Выбрать диапазон", "AC:MODE:RANGE"))
+                    ),
+                    true);
+            case "AC_GRAMS_INPUT" -> sendMessage(target,
+                    "✍️ Введите количество фреона в граммах (например: `350`).",
+                    List.of(),
+                    true);
+            case "AC_RANGE_PICK" -> sendMessage(target,
+                    "📊 Выберите ориентировочный диапазон заправки:",
+                    List.of(
+                            MessageFactory.row(messages.callback("0-200 г", "AC:RANGE:0-200")),
+                            MessageFactory.row(messages.callback("201-400 г", "AC:RANGE:201-400")),
+                            MessageFactory.row(messages.callback("401-600 г", "AC:RANGE:401-600")),
+                            MessageFactory.row(messages.callback("601-800 г", "AC:RANGE:601-800")),
+                            MessageFactory.row(messages.callback("801+ г", "AC:RANGE:801+"))
+                    ),
+                    true);
+            default -> sendMainMenu(target, true);
+        }
+    }
+
+    private boolean handleAcCallback(UserSession session, ChatTarget target, String payload) throws SQLException, IOException {
+        if ("AC:MODE:INPUT".equals(payload)) {
+            UserSession next = nextStep(session, "AC_GRAMS_INPUT");
+            sessions.save(next);
+            renderAcStep(next, target);
+            return true;
+        }
+        if ("AC:MODE:RANGE".equals(payload)) {
+            UserSession next = nextStep(session, "AC_RANGE_PICK");
+            sessions.save(next);
+            renderAcStep(next, target);
+            return true;
+        }
+        if (payload.startsWith("AC:RANGE:")) {
+            return sendAcRangeResultAndFinish(session, target, payload.substring("AC:RANGE:".length()));
+        }
+        return false;
+    }
+
+    private boolean handleAcText(UserSession session, ChatTarget target, String text) throws SQLException, IOException {
+        if (!"AC_GRAMS_INPUT".equals(session.step())) {
+            return false;
+        }
+        Integer grams = tryParseInt(text.trim());
+        if (grams == null || grams < 0 || grams > 5000) {
+            sendMessage(target, "⚠️ Укажите число в граммах (от 0 до 5000).", List.of(), true);
+            return true;
+        }
+        return sendAcExactResultAndFinish(session, target, grams);
+    }
+
+    private boolean sendAcExactResultAndFinish(UserSession session, ChatTarget target, int grams) throws SQLException, IOException {
+        ObjectNode pricing = loadPricingConfig();
+        int base = pricing.path("AC_BASE_SERVICE").asInt(1100);
+        int perGram = pricing.path("AC_R134A_PER_GRAM").asInt(5);
+        int refill = grams * perGram;
+        int total = base + refill;
+
+        sendMessage(target,
+                "❄️ *Расчёт заправки автокондиционера*\n"
+                        + "Базовая услуга: " + base + " ₽\n"
+                        + "Фреон R134A: " + grams + " г × " + perGram + " ₽ = " + refill + " ₽\n"
+                        + "Итого: *" + total + " ₽*",
+                List.of(
+                        MessageFactory.row(messages.callback("🔁 Пересчитать", "ACT:AC")),
+                        MessageFactory.row(messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"))
+                ),
+                true);
+
+        sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
+        return true;
+    }
+
+    private boolean sendAcRangeResultAndFinish(UserSession session, ChatTarget target, String range) throws SQLException, IOException {
+        ObjectNode pricing = loadPricingConfig();
+        int base = pricing.path("AC_BASE_SERVICE").asInt(1100);
+        int perGram = pricing.path("AC_R134A_PER_GRAM").asInt(5);
+
+        Integer min;
+        Integer max = null;
+        if (range.endsWith("+")) {
+            min = tryParseInt(range.substring(0, range.length() - 1));
+            if (min == null || min < 0) {
+                sendMessage(target, "⚠️ Не удалось распознать диапазон.", List.of(), true);
+                return true;
+            }
+        } else {
+            String[] parts = range.split("-");
+            if (parts.length != 2) {
+                sendMessage(target, "⚠️ Не удалось распознать диапазон.", List.of(), true);
+                return true;
+            }
+            min = tryParseInt(parts[0]);
+            max = tryParseInt(parts[1]);
+            if (min == null || max == null || min < 0 || max < min) {
+                sendMessage(target, "⚠️ Не удалось распознать диапазон.", List.of(), true);
+                return true;
+            }
+        }
+
+        int minTotal = base + (min * perGram);
+        String totalText;
+        if (max == null) {
+            totalText = "Итого: *от " + minTotal + " ₽*";
+        } else {
+            int maxTotal = base + (max * perGram);
+            totalText = "Итого: *" + minTotal + "–" + maxTotal + " ₽*";
+        }
+
+        sendMessage(target,
+                "❄️ *Расчёт заправки автокондиционера*\n"
+                        + "Базовая услуга: " + base + " ₽\n"
+                        + "Фреон R134A: " + perGram + " ₽/г\n"
+                        + "Диапазон: " + range + " г\n"
+                        + totalText,
+                List.of(
+                        MessageFactory.row(messages.callback("🔁 Пересчитать", "ACT:AC")),
+                        MessageFactory.row(messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"))
+                ),
+                true);
+
+        sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
+        return true;
     }
 
     // ---------------- FEEDBACK ----------------
@@ -1860,9 +2186,12 @@ public final class BotService {
                     "💸 Изменение цен\nВыберите раздел:",
                     List.of(
                             MessageFactory.row(messages.callback("🚙 Седан", "ADM:PRICE:CAT:" + PRICE_CAT_SEDAN)),
-                            MessageFactory.row(messages.callback("🚘 Кроссовер / Внедорожник / Минивен", "ADM:PRICE:CAT:" + PRICE_CAT_SUV)),
+                            MessageFactory.row(messages.callback("🚘 Кроссовер", "ADM:PRICE:CAT:" + PRICE_CAT_CROSSOVER)),
+                            MessageFactory.row(messages.callback("🛻 Внедорожник", "ADM:PRICE:CAT:" + PRICE_CAT_SUV)),
+                            MessageFactory.row(messages.callback("🚐 Минивэн", "ADM:PRICE:CAT:" + PRICE_CAT_MINIVAN)),
                             MessageFactory.row(messages.callback("🚚 Коммерческий", "ADM:PRICE:CAT:" + PRICE_CAT_COMM)),
                             MessageFactory.row(messages.callback("⚙️ Прочие услуги", "ADM:PRICE:CAT:" + PRICE_CAT_SERVICE)),
+                            MessageFactory.row(messages.callback("📦 Хранение шин", "ADM:PRICE:CAT:" + PRICE_CAT_STORAGE)),
                             MessageFactory.row(messages.callback("🧩 Доп. услуги", "ADM:PRICE:CAT:" + PRICE_CAT_EXTRA)),
                             MessageFactory.row(messages.callback("⬅️ Назад", "ADM:REFRESH"))
                     ),
@@ -1952,7 +2281,16 @@ public final class BotService {
         }
         if (payload.startsWith("ADM:PRICE:CAT:")) {
             String category = payload.substring("ADM:PRICE:CAT:".length());
-            if (!Set.of(PRICE_CAT_SEDAN, PRICE_CAT_SUV, PRICE_CAT_COMM, PRICE_CAT_SERVICE, PRICE_CAT_EXTRA).contains(category)) {
+            if (!Set.of(
+                    PRICE_CAT_SEDAN,
+                    PRICE_CAT_CROSSOVER,
+                    PRICE_CAT_SUV,
+                    PRICE_CAT_MINIVAN,
+                    PRICE_CAT_COMM,
+                    PRICE_CAT_SERVICE,
+                    PRICE_CAT_STORAGE,
+                    PRICE_CAT_EXTRA
+            ).contains(category)) {
                 sendAdminMessage(target, "⚠️ Неизвестный раздел цен.", List.of(), true);
                 return true;
             }
@@ -2351,6 +2689,9 @@ public final class BotService {
         if (containsAny(t, "хранен", "сдать шины", "забрать шины", "склад")) {
             return SC_STORAGE;
         }
+        if (containsAny(t, "кондиционер", "автокондиционер", "фреон", "заправка кондиционера", "заправка кондиционеров")) {
+            return SC_AC;
+        }
         if (containsAny(t, "жалоб", "отзыв", "предложен")) {
             return SC_FEEDBACK;
         }
@@ -2473,7 +2814,6 @@ public final class BotService {
 
     private String buildStoragePickAdminSummary(ObjectNode state) {
         return "🏢 Филиал: " + branchNameByIdSafe(safe(state, "pick_branch")) + "\n"
-                + "📅 Дата: " + safe(state, "pick_date") + "\n"
                 + "👤 ФИО: " + safe(state, "pick_fio") + "\n"
                 + "📱 Телефон: " + safe(state, "pick_phone") + "\n"
                 + "🔢 Номер авто/договор: " + safe(state, "pick_contract");
@@ -2630,7 +2970,8 @@ public final class BotService {
             if (value > 0) {
                 return value;
             }
-            return isSedan(carType) ? pricing.path("SEDAN_R16").asInt(2420) : pricing.path("SUV_R16").asInt(2660);
+            String fallbackKey = basePriceKey(carType, "R16");
+            return pricing.path(fallbackKey).asInt(isSedan(carType) ? 2420 : 2660);
         }
 
         int base = switch (service) {
@@ -2745,6 +3086,16 @@ public final class BotService {
         cfg.put("SEDAN_R21", 3980);
         cfg.put("SEDAN_R22_PLUS", 4240);
 
+        cfg.put("CROSSOVER_R13_14", 2460);
+        cfg.put("CROSSOVER_R15", 2560);
+        cfg.put("CROSSOVER_R16", 2660);
+        cfg.put("CROSSOVER_R17", 2980);
+        cfg.put("CROSSOVER_R18", 3420);
+        cfg.put("CROSSOVER_R19", 3880);
+        cfg.put("CROSSOVER_R20", 4180);
+        cfg.put("CROSSOVER_R21", 4320);
+        cfg.put("CROSSOVER_R22_PLUS", 4520);
+
         cfg.put("SUV_R13_14", 2460);
         cfg.put("SUV_R15", 2560);
         cfg.put("SUV_R16", 2660);
@@ -2755,10 +3106,31 @@ public final class BotService {
         cfg.put("SUV_R21", 4320);
         cfg.put("SUV_R22_PLUS", 4520);
 
+        cfg.put("MINIVAN_R13_14", 2460);
+        cfg.put("MINIVAN_R15", 2560);
+        cfg.put("MINIVAN_R16", 2660);
+        cfg.put("MINIVAN_R17", 2980);
+        cfg.put("MINIVAN_R18", 3420);
+        cfg.put("MINIVAN_R19", 3880);
+        cfg.put("MINIVAN_R20", 4180);
+        cfg.put("MINIVAN_R21", 4320);
+        cfg.put("MINIVAN_R22_PLUS", 4520);
+
         cfg.put("COMMERCIAL_4", 3920);
         cfg.put("COMMERCIAL_6", 5380);
         cfg.put("BALANCING_BASE", 500);
-        cfg.put("STORAGE_PER_DAY", 50);
+        cfg.put("AC_BASE_SERVICE", 1100);
+        cfg.put("AC_R134A_PER_GRAM", 5);
+
+        cfg.put("STORAGE_NO_DISK_R12_16", 3000);
+        cfg.put("STORAGE_NO_DISK_R17_19", 3300);
+        cfg.put("STORAGE_NO_DISK_R20_PLUS", 3850);
+        cfg.put("STORAGE_STEEL_R12_16", 3200);
+        cfg.put("STORAGE_STEEL_R17_19", 4000);
+        cfg.put("STORAGE_STEEL_R20_PLUS", 5200);
+        cfg.put("STORAGE_ALLOY_R12_16", 4000);
+        cfg.put("STORAGE_ALLOY_R17_19", 4400);
+        cfg.put("STORAGE_ALLOY_R20_PLUS", 5200);
 
         cfg.put("EXTRA_RUNFLAT", 400);
         cfg.put("EXTRA_LOW_PROFILE", 400);
@@ -2772,9 +3144,14 @@ public final class BotService {
     private List<String> defaultPricingKeys() {
         return List.of(
                 "SEDAN_R12_14", "SEDAN_R15", "SEDAN_R16", "SEDAN_R17", "SEDAN_R18", "SEDAN_R19", "SEDAN_R20", "SEDAN_R21", "SEDAN_R22_PLUS",
+                "CROSSOVER_R13_14", "CROSSOVER_R15", "CROSSOVER_R16", "CROSSOVER_R17", "CROSSOVER_R18", "CROSSOVER_R19", "CROSSOVER_R20", "CROSSOVER_R21", "CROSSOVER_R22_PLUS",
                 "SUV_R13_14", "SUV_R15", "SUV_R16", "SUV_R17", "SUV_R18", "SUV_R19", "SUV_R20", "SUV_R21", "SUV_R22_PLUS",
+                "MINIVAN_R13_14", "MINIVAN_R15", "MINIVAN_R16", "MINIVAN_R17", "MINIVAN_R18", "MINIVAN_R19", "MINIVAN_R20", "MINIVAN_R21", "MINIVAN_R22_PLUS",
                 "COMMERCIAL_4", "COMMERCIAL_6",
-                "BALANCING_BASE", "STORAGE_PER_DAY",
+                "BALANCING_BASE", "AC_BASE_SERVICE", "AC_R134A_PER_GRAM",
+                "STORAGE_NO_DISK_R12_16", "STORAGE_NO_DISK_R17_19", "STORAGE_NO_DISK_R20_PLUS",
+                "STORAGE_STEEL_R12_16", "STORAGE_STEEL_R17_19", "STORAGE_STEEL_R20_PLUS",
+                "STORAGE_ALLOY_R12_16", "STORAGE_ALLOY_R17_19", "STORAGE_ALLOY_R20_PLUS",
                 "EXTRA_RUNFLAT", "EXTRA_LOW_PROFILE", "EXTRA_VALVES", "EXTRA_SEALANT", "EXTRA_HUB_LUBE", "EXTRA_GLUE_CLEAN"
         );
     }
@@ -2782,9 +3159,16 @@ public final class BotService {
     private List<List<ObjectNode>> buildPriceItemRows(String category, ObjectNode cfg) {
         List<String> keys = switch (category) {
             case PRICE_CAT_SEDAN -> List.of("SEDAN_R12_14", "SEDAN_R15", "SEDAN_R16", "SEDAN_R17", "SEDAN_R18", "SEDAN_R19", "SEDAN_R20", "SEDAN_R21", "SEDAN_R22_PLUS");
+            case PRICE_CAT_CROSSOVER -> List.of("CROSSOVER_R13_14", "CROSSOVER_R15", "CROSSOVER_R16", "CROSSOVER_R17", "CROSSOVER_R18", "CROSSOVER_R19", "CROSSOVER_R20", "CROSSOVER_R21", "CROSSOVER_R22_PLUS");
             case PRICE_CAT_SUV -> List.of("SUV_R13_14", "SUV_R15", "SUV_R16", "SUV_R17", "SUV_R18", "SUV_R19", "SUV_R20", "SUV_R21", "SUV_R22_PLUS");
+            case PRICE_CAT_MINIVAN -> List.of("MINIVAN_R13_14", "MINIVAN_R15", "MINIVAN_R16", "MINIVAN_R17", "MINIVAN_R18", "MINIVAN_R19", "MINIVAN_R20", "MINIVAN_R21", "MINIVAN_R22_PLUS");
             case PRICE_CAT_COMM -> List.of("COMMERCIAL_4", "COMMERCIAL_6");
-            case PRICE_CAT_SERVICE -> List.of("BALANCING_BASE", "STORAGE_PER_DAY");
+            case PRICE_CAT_SERVICE -> List.of("BALANCING_BASE", "AC_BASE_SERVICE", "AC_R134A_PER_GRAM");
+            case PRICE_CAT_STORAGE -> List.of(
+                    "STORAGE_NO_DISK_R12_16", "STORAGE_NO_DISK_R17_19", "STORAGE_NO_DISK_R20_PLUS",
+                    "STORAGE_STEEL_R12_16", "STORAGE_STEEL_R17_19", "STORAGE_STEEL_R20_PLUS",
+                    "STORAGE_ALLOY_R12_16", "STORAGE_ALLOY_R17_19", "STORAGE_ALLOY_R20_PLUS"
+            );
             case PRICE_CAT_EXTRA -> List.of("EXTRA_RUNFLAT", "EXTRA_LOW_PROFILE", "EXTRA_VALVES", "EXTRA_SEALANT", "EXTRA_HUB_LUBE", "EXTRA_GLUE_CLEAN");
             default -> List.of();
         };
@@ -2810,20 +3194,51 @@ public final class BotService {
             case "SEDAN_R21" -> "Седан R21";
             case "SEDAN_R22_PLUS" -> "Седан R22+";
 
-            case "SUV_R13_14" -> "Кроссовер/SUV R13-R14";
-            case "SUV_R15" -> "Кроссовер/SUV R15";
-            case "SUV_R16" -> "Кроссовер/SUV R16";
-            case "SUV_R17" -> "Кроссовер/SUV R17";
-            case "SUV_R18" -> "Кроссовер/SUV R18";
-            case "SUV_R19" -> "Кроссовер/SUV R19";
-            case "SUV_R20" -> "Кроссовер/SUV R20";
-            case "SUV_R21" -> "Кроссовер/SUV R21";
-            case "SUV_R22_PLUS" -> "Кроссовер/SUV R22+";
+            case "CROSSOVER_R13_14" -> "Кроссовер R13-R14";
+            case "CROSSOVER_R15" -> "Кроссовер R15";
+            case "CROSSOVER_R16" -> "Кроссовер R16";
+            case "CROSSOVER_R17" -> "Кроссовер R17";
+            case "CROSSOVER_R18" -> "Кроссовер R18";
+            case "CROSSOVER_R19" -> "Кроссовер R19";
+            case "CROSSOVER_R20" -> "Кроссовер R20";
+            case "CROSSOVER_R21" -> "Кроссовер R21";
+            case "CROSSOVER_R22_PLUS" -> "Кроссовер R22+";
+
+            case "SUV_R13_14" -> "Внедорожник R13-R14";
+            case "SUV_R15" -> "Внедорожник R15";
+            case "SUV_R16" -> "Внедорожник R16";
+            case "SUV_R17" -> "Внедорожник R17";
+            case "SUV_R18" -> "Внедорожник R18";
+            case "SUV_R19" -> "Внедорожник R19";
+            case "SUV_R20" -> "Внедорожник R20";
+            case "SUV_R21" -> "Внедорожник R21";
+            case "SUV_R22_PLUS" -> "Внедорожник R22+";
+
+            case "MINIVAN_R13_14" -> "Минивэн R13-R14";
+            case "MINIVAN_R15" -> "Минивэн R15";
+            case "MINIVAN_R16" -> "Минивэн R16";
+            case "MINIVAN_R17" -> "Минивэн R17";
+            case "MINIVAN_R18" -> "Минивэн R18";
+            case "MINIVAN_R19" -> "Минивэн R19";
+            case "MINIVAN_R20" -> "Минивэн R20";
+            case "MINIVAN_R21" -> "Минивэн R21";
+            case "MINIVAN_R22_PLUS" -> "Минивэн R22+";
 
             case "COMMERCIAL_4" -> "Коммерческий (4 колеса)";
             case "COMMERCIAL_6" -> "Коммерческий (6 колёс)";
             case "BALANCING_BASE" -> "Балансировка (базовая)";
-            case "STORAGE_PER_DAY" -> "Хранение (за день)";
+            case "AC_BASE_SERVICE" -> "Кондиционер: подключение/вакуумация";
+            case "AC_R134A_PER_GRAM" -> "Кондиционер: R134A (за грамм)";
+
+            case "STORAGE_NO_DISK_R12_16" -> "Хранение без дисков R12-R16";
+            case "STORAGE_NO_DISK_R17_19" -> "Хранение без дисков R17-R19";
+            case "STORAGE_NO_DISK_R20_PLUS" -> "Хранение без дисков R20+";
+            case "STORAGE_STEEL_R12_16" -> "Хранение на стальных дисках R12-R16";
+            case "STORAGE_STEEL_R17_19" -> "Хранение на стальных дисках R17-R19";
+            case "STORAGE_STEEL_R20_PLUS" -> "Хранение на стальных дисках R20+";
+            case "STORAGE_ALLOY_R12_16" -> "Хранение на литых дисках R12-R16";
+            case "STORAGE_ALLOY_R17_19" -> "Хранение на литых дисках R17-R19";
+            case "STORAGE_ALLOY_R20_PLUS" -> "Хранение на литых дисках R20+";
 
             case "EXTRA_RUNFLAT" -> "RunFlat";
             case "EXTRA_LOW_PROFILE" -> "Низкий профиль (=<50)";
@@ -2923,6 +3338,18 @@ public final class BotService {
         aliases.put("SUV_R22_PLUS", "SUV_R22_PLUS");
         aliases.put("COMMERCIAL_4", "COMMERCIAL_4");
         aliases.put("COMMERCIAL_6", "COMMERCIAL_6");
+        aliases.put("BALANCING_BASE", "BALANCING_BASE");
+        aliases.put("AC_BASE_SERVICE", "AC_BASE_SERVICE");
+        aliases.put("AC_R134A_PER_GRAM", "AC_R134A_PER_GRAM");
+        aliases.put("STORAGE_NO_DISK_R12_16", "STORAGE_NO_DISK_R12_16");
+        aliases.put("STORAGE_NO_DISK_R17_19", "STORAGE_NO_DISK_R17_19");
+        aliases.put("STORAGE_NO_DISK_R20_PLUS", "STORAGE_NO_DISK_R20_PLUS");
+        aliases.put("STORAGE_STEEL_R12_16", "STORAGE_STEEL_R12_16");
+        aliases.put("STORAGE_STEEL_R17_19", "STORAGE_STEEL_R17_19");
+        aliases.put("STORAGE_STEEL_R20_PLUS", "STORAGE_STEEL_R20_PLUS");
+        aliases.put("STORAGE_ALLOY_R12_16", "STORAGE_ALLOY_R12_16");
+        aliases.put("STORAGE_ALLOY_R17_19", "STORAGE_ALLOY_R17_19");
+        aliases.put("STORAGE_ALLOY_R20_PLUS", "STORAGE_ALLOY_R20_PLUS");
         aliases.put("EXTRA_RUNFLAT", "EXTRA_RUNFLAT");
         aliases.put("EXTRA_LOW_PROFILE", "EXTRA_LOW_PROFILE");
         aliases.put("EXTRA_VALVES", "EXTRA_VALVES");
@@ -2939,17 +3366,38 @@ public final class BotService {
         aliases.put("СЕДАН_R20", "SEDAN_R20");
         aliases.put("СЕДАН_R21", "SEDAN_R21");
         aliases.put("СЕДАН_R22_PLUS", "SEDAN_R22_PLUS");
-        aliases.put("КРОССОВЕР_R13_14", "SUV_R13_14");
-        aliases.put("КРОССОВЕР_R15", "SUV_R15");
-        aliases.put("КРОССОВЕР_R16", "SUV_R16");
-        aliases.put("КРОССОВЕР_R17", "SUV_R17");
-        aliases.put("КРОССОВЕР_R18", "SUV_R18");
-        aliases.put("КРОССОВЕР_R19", "SUV_R19");
-        aliases.put("КРОССОВЕР_R20", "SUV_R20");
-        aliases.put("КРОССОВЕР_R21", "SUV_R21");
-        aliases.put("КРОССОВЕР_R22_PLUS", "SUV_R22_PLUS");
+        aliases.put("КРОССОВЕР_R13_14", "CROSSOVER_R13_14");
+        aliases.put("КРОССОВЕР_R15", "CROSSOVER_R15");
+        aliases.put("КРОССОВЕР_R16", "CROSSOVER_R16");
+        aliases.put("КРОССОВЕР_R17", "CROSSOVER_R17");
+        aliases.put("КРОССОВЕР_R18", "CROSSOVER_R18");
+        aliases.put("КРОССОВЕР_R19", "CROSSOVER_R19");
+        aliases.put("КРОССОВЕР_R20", "CROSSOVER_R20");
+        aliases.put("КРОССОВЕР_R21", "CROSSOVER_R21");
+        aliases.put("КРОССОВЕР_R22_PLUS", "CROSSOVER_R22_PLUS");
+        aliases.put("ВНЕДОРОЖНИК_R13_14", "SUV_R13_14");
+        aliases.put("ВНЕДОРОЖНИК_R15", "SUV_R15");
+        aliases.put("ВНЕДОРОЖНИК_R16", "SUV_R16");
+        aliases.put("ВНЕДОРОЖНИК_R17", "SUV_R17");
+        aliases.put("ВНЕДОРОЖНИК_R18", "SUV_R18");
+        aliases.put("ВНЕДОРОЖНИК_R19", "SUV_R19");
+        aliases.put("ВНЕДОРОЖНИК_R20", "SUV_R20");
+        aliases.put("ВНЕДОРОЖНИК_R21", "SUV_R21");
+        aliases.put("ВНЕДОРОЖНИК_R22_PLUS", "SUV_R22_PLUS");
+        aliases.put("МИНИВЕН_R13_14", "MINIVAN_R13_14");
+        aliases.put("МИНИВЕН_R15", "MINIVAN_R15");
+        aliases.put("МИНИВЕН_R16", "MINIVAN_R16");
+        aliases.put("МИНИВЕН_R17", "MINIVAN_R17");
+        aliases.put("МИНИВЕН_R18", "MINIVAN_R18");
+        aliases.put("МИНИВЕН_R19", "MINIVAN_R19");
+        aliases.put("МИНИВЕН_R20", "MINIVAN_R20");
+        aliases.put("МИНИВЕН_R21", "MINIVAN_R21");
+        aliases.put("МИНИВЕН_R22_PLUS", "MINIVAN_R22_PLUS");
         aliases.put("КОММЕРЧЕСКИЙ_4", "COMMERCIAL_4");
         aliases.put("КОММЕРЧЕСКИЙ_6", "COMMERCIAL_6");
+        aliases.put("БАЛАНСИРОВКА", "BALANCING_BASE");
+        aliases.put("КОНДИЦИОНЕР_БАЗА", "AC_BASE_SERVICE");
+        aliases.put("КОНДИЦИОНЕР_ФРЕОН_ЗА_ГРАММ", "AC_R134A_PER_GRAM");
         aliases.put("RUNFLAT", "EXTRA_RUNFLAT");
         aliases.put("НИЗКИЙ_ПРОФИЛЬ", "EXTRA_LOW_PROFILE");
         aliases.put("ЗАМЕНА_ВЕНТИЛЕЙ", "EXTRA_VALVES");
@@ -2964,6 +3412,12 @@ public final class BotService {
         String d = normalizeDiameterForKey(diameter, carType);
         if (isSedan(carType)) {
             return "SEDAN_" + d;
+        }
+        if ("Кроссовер".equals(carType)) {
+            return "CROSSOVER_" + d;
+        }
+        if ("Минивен".equals(carType)) {
+            return "MINIVAN_" + d;
         }
         return "SUV_" + d;
     }
@@ -3029,17 +3483,54 @@ public final class BotService {
         return "Кроссовер".equals(carType) || "Внедорожник".equals(carType) || "Минивен".equals(carType);
     }
 
-    private int estimateStoragePrice(String radius, String type) {
-        int base = switch (radius) {
-            case "R13-R15" -> 1800;
-            case "R16-R17" -> 2300;
-            case "R18+" -> 2800;
-            default -> 2200;
+    private String storagePriceKey(String typeCode, String radiusCode) {
+        return switch (typeCode) {
+            case "NO_DISK" -> switch (radiusCode) {
+                case "R12_16" -> "STORAGE_NO_DISK_R12_16";
+                case "R17_19" -> "STORAGE_NO_DISK_R17_19";
+                case "R20_PLUS" -> "STORAGE_NO_DISK_R20_PLUS";
+                default -> "STORAGE_NO_DISK_R12_16";
+            };
+            case "STEEL" -> switch (radiusCode) {
+                case "R12_16" -> "STORAGE_STEEL_R12_16";
+                case "R17_19" -> "STORAGE_STEEL_R17_19";
+                case "R20_PLUS" -> "STORAGE_STEEL_R20_PLUS";
+                default -> "STORAGE_STEEL_R12_16";
+            };
+            case "ALLOY" -> switch (radiusCode) {
+                case "R12_16" -> "STORAGE_ALLOY_R12_16";
+                case "R17_19" -> "STORAGE_ALLOY_R17_19";
+                case "R20_PLUS" -> "STORAGE_ALLOY_R20_PLUS";
+                default -> "STORAGE_ALLOY_R12_16";
+            };
+            default -> "STORAGE_NO_DISK_R12_16";
         };
-        if ("Полный комплект".equals(type)) {
-            base += 600;
+    }
+
+    private String storageTypeLabel(String typeCode) {
+        return switch (typeCode) {
+            case "NO_DISK" -> "Шины без дисков";
+            case "STEEL" -> "Шины на дисках (стальные)";
+            case "ALLOY" -> "Шины на дисках (литые)";
+            default -> "Шины без дисков";
+        };
+    }
+
+    private String storageRadiusLabel(String radiusCode) {
+        return switch (radiusCode) {
+            case "R12_16" -> "R12-R16";
+            case "R17_19" -> "R17-R19";
+            case "R20_PLUS" -> "R20+";
+            default -> "R12-R16";
+        };
+    }
+
+    private boolean isVolzhsky(String city) {
+        if (city == null) {
+            return false;
         }
-        return base;
+        String normalized = city.trim().toLowerCase(Locale.ROOT).replace('ё', 'е');
+        return "волжский".equals(normalized);
     }
 
     private Long tryParseLong(String value) {
