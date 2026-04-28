@@ -2623,7 +2623,27 @@ public final class BotService {
         attachments.add(keyboardAttachment);
 
         body.set("attachments", attachments);
-        api.sendMessage(target, body);
+        int maxAttempts = 6;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                api.sendMessage(target, body);
+                return;
+            } catch (IOException e) {
+                String msg = e.getMessage() == null ? "" : e.getMessage();
+                boolean notReady = msg.contains("attachment.not.ready") || msg.contains("not.processed");
+                if (!notReady || attempt == maxAttempts) {
+                    throw e;
+                }
+                long delayMs = 400L * attempt;
+                log.warn("Файл прайса ещё обрабатывается (attempt {}/{}), повтор через {} мс", attempt, maxAttempts, delayMs);
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Прервано ожидание обработки прайса", interrupted);
+                }
+            }
+        }
     }
 
     private void notifyAdmins(String text) throws SQLException {
