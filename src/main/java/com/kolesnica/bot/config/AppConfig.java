@@ -8,19 +8,22 @@ public final class AppConfig {
     private final int pollTimeout;
     private final int pollLimit;
     private final String dbPath;
+    private final String pricePdfPath;
 
     private AppConfig(
             String botToken,
             String apiBaseUrl,
             int pollTimeout,
             int pollLimit,
-            String dbPath
+            String dbPath,
+            String pricePdfPath
     ) {
         this.botToken = botToken;
         this.apiBaseUrl = apiBaseUrl;
         this.pollTimeout = pollTimeout;
         this.pollLimit = pollLimit;
         this.dbPath = dbPath;
+        this.pricePdfPath = pricePdfPath;
     }
 
     public static AppConfig fromEnv() {
@@ -29,6 +32,7 @@ public final class AppConfig {
         int timeout = parseInt("BOT_POLL_TIMEOUT", 25);
         int limit = parseInt("BOT_POLL_LIMIT", 1000);
         String dbPath = getOrDefault("BOT_DB_PATH", "./data/bot.db");
+        String pricePdfPath = getOrDefault("BOT_PRICE_PDF_PATH", "./data/Price.pdf");
 
         if (timeout < 0 || timeout > 90) {
             throw new IllegalArgumentException("BOT_POLL_TIMEOUT должен быть в диапазоне 0..90");
@@ -37,7 +41,7 @@ public final class AppConfig {
             throw new IllegalArgumentException("BOT_POLL_LIMIT должен быть в диапазоне 1..1000");
         }
 
-        return new AppConfig(token, baseUrl, timeout, limit, dbPath);
+        return new AppConfig(token, baseUrl, timeout, limit, dbPath, pricePdfPath);
     }
 
     public String botToken() {
@@ -58,6 +62,10 @@ public final class AppConfig {
 
     public String dbPath() {
         return dbPath;
+    }
+
+    public String pricePdfPath() {
+        return pricePdfPath;
     }
 
     private static String getRequired(String key) {

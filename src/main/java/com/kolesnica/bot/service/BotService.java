@@ -19,6 +19,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -75,6 +78,7 @@ public final class BotService {
     private final RequestRepository requests;
     private final MessageFactory messages;
     private final ObjectMapper mapper;
+    private final String pricePdfPath;
 
     public BotService(
             MaxApiClient api,
@@ -85,7 +89,8 @@ public final class BotService {
             UserRepository users,
             RequestRepository requests,
             MessageFactory messages,
-            ObjectMapper mapper
+            ObjectMapper mapper,
+            String pricePdfPath
     ) {
         this.api = api;
         this.sessions = sessions;
@@ -96,6 +101,7 @@ public final class BotService {
         this.requests = requests;
         this.messages = messages;
         this.mapper = mapper;
+        this.pricePdfPath = pricePdfPath;
     }
 
     public void handleUpdate(JsonNode update) {
@@ -301,6 +307,7 @@ public final class BotService {
             case "ACT:PRICE" -> startScenario(SC_PRICE, session, target);
             case "ACT:STORAGE" -> startScenario(SC_STORAGE, session, target);
             case "ACT:AC" -> startScenario(SC_AC, session, target);
+            case "ACT:PRICE_DOC" -> sendPriceDocument(target);
             case "ACT:FEEDBACK" -> startScenario(SC_FEEDBACK, session, target);
             case "ACT:OPERATOR" -> {
                 sendOperatorContact(target);
@@ -461,7 +468,8 @@ public final class BotService {
                 MessageFactory.row(messages.callback("📦 Хранение шин", "ACT:STORAGE")),
                 MessageFactory.row(messages.callback("❄️ Заправка автокондиционеров", "ACT:AC")),
                 MessageFactory.row(messages.callback("📝 Отзыв / жалоба", "ACT:FEEDBACK")),
-                MessageFactory.row(messages.callback("👩‍💼 Связь с оператором", "ACT:OPERATOR"))
+                MessageFactory.row(messages.callback("👩‍💼 Связь с оператором", "ACT:OPERATOR")),
+                MessageFactory.row(messages.callback("📄 Прайс", "ACT:PRICE_DOC"))
         );
 
         sendMessage(target, text, rows, false);
@@ -522,6 +530,12 @@ public final class BotService {
             }
             case "BOOK_DISTRICT" -> {
                 String city = session.state().path("city").asText("");
+                if (isVolzhsky(city)) {
+                    UserSession next = nextStep(session, "BOOK_BRANCH_PICK");
+                    sessions.save(next);
+                    renderBookingStep(next, target);
+                    return;
+                }
                 List<List<ObjectNode>> rows = new ArrayList<>();
                 for (String district : branches.listDistricts(city)) {
                     rows.add(MessageFactory.row(messages.callback("📍 " + district, "BOOK:DIST:" + district)));
@@ -701,9 +715,10 @@ public final class BotService {
             return true;
         }
         if (payload.startsWith("BOOK:CITY:")) {
-            session.state().put("city", payload.substring("BOOK:CITY:".length()));
+            String city = payload.substring("BOOK:CITY:".length());
+            session.state().put("city", city);
             session.state().remove("district");
-            UserSession next = nextStep(session, "BOOK_DISTRICT");
+            UserSession next = nextStep(session, isVolzhsky(city) ? "BOOK_BRANCH_PICK" : "BOOK_DISTRICT");
             sessions.save(next);
             renderBookingStep(next, target);
             return true;
@@ -738,7 +753,11 @@ public final class BotService {
                 default -> "Как можно быстрее";
             };
             session.state().put("date", date);
-            UserSession next = nextStep(session, resolveBookingNextStep(session, "BOOK_TIME"));
+            if ("ASAP".equals(dateType)) {
+                session.state().put("time", "Как можно быстрее");
+            }
+            String step = "ASAP".equals(dateType) ? "BOOK_NAME" : "BOOK_TIME";
+            UserSession next = nextStep(session, resolveBookingNextStep(session, step));
             sessions.save(next);
             renderBookingStep(next, target);
             return true;
@@ -803,6 +822,16 @@ public final class BotService {
             return true;
         }
         if (payload.equals("BOOK:CONFIRM")) {
+            String phone = safe(session.state(), "phone");
+            if ("—".equals(phone) || phone.isBlank() || "-".equals(phone)) {
+                sendMessage(target,
+                        "📱 Для отправки заявки нужен номер телефона.\nПожалуйста, укажите номер в формате +7...",
+                        List.of(),
+                        true);
+                UserSession next = nextStep(session, "BOOK_PHONE");
+                sessions.save(next);
+                return true;
+            }
             ObjectNode requestPayload = session.state().deepCopy();
             requestPayload.put("scenario", SC_BOOKING);
             requests.saveRequest(session.userId(), session.chatId(), "booking", requestPayload);
@@ -1251,6 +1280,10 @@ public final class BotService {
                     "🛠️ Опишите проблему, чтобы мы рассчитали точную цену.\nНапример: где повреждение, как давно, есть ли фото.",
                     List.of(),
                     true);
+            case "PRICE_PROBLEM_PHONE" -> sendMessage(target,
+                    "📱 Укажите номер телефона для связи\nв формате +7...",
+                    List.of(),
+                    true);
             case "PRICE_EXTRA" -> sendPriceExtraStep(session, target);
             default -> sendMainMenu(target, true);
         }
@@ -1369,6 +1402,17 @@ public final class BotService {
     private boolean handlePriceText(UserSession session, ChatTarget target, String text) throws SQLException, IOException {
         if ("PRICE_PROBLEM_TEXT".equals(session.step())) {
             session.state().put("problem", text);
+            UserSession next = nextStep(session, "PRICE_PROBLEM_PHONE");
+            sessions.save(next);
+            renderPriceStep(next, target);
+            return true;
+        }
+        if ("PRICE_PROBLEM_PHONE".equals(session.step())) {
+            if (!isValidPhone(text)) {
+                sendMessage(target, "📱 Проверьте номер телефона. Пример: +79005553535", List.of(), true);
+                return true;
+            }
+            session.state().put("phone", text.trim());
             ObjectNode payload = session.state().deepCopy();
             payload.put("scenario", "price_problem");
             requests.saveRequest(session.userId(), session.chatId(), "price_problem", payload);
@@ -1376,6 +1420,7 @@ public final class BotService {
                     "🛠️ Запрос на расчёт цены\n"
                             + "Услуга: " + safe(session.state(), "service") + "\n"
                             + "Описание: " + safe(session.state(), "problem") + "\n"
+                            + "Телефон: " + safe(session.state(), "phone") + "\n"
                             + "Пользователь ID: " + session.userId()
             );
             sessions.save(new UserSession(session.userId(), session.chatId(), null, null, mapper.createObjectNode(), mapper.createArrayNode()));
@@ -2531,6 +2576,54 @@ public final class BotService {
                 List.of(MessageFactory.row(messages.callback("🏠 Главное меню", "NAV:MENU"))),
                 false
         );
+    }
+
+    private void sendPriceDocument(ChatTarget target) throws IOException {
+        Path filePath = Paths.get(pricePdfPath);
+        List<List<ObjectNode>> rows = List.of(
+                MessageFactory.row(messages.callback("⬅️ Назад", "NAV:BACK")),
+                MessageFactory.row(messages.callback("🏠 Главное меню", "NAV:MENU")),
+                MessageFactory.row(messages.callback("👩‍💼 Оператор", "ACT:OPERATOR"))
+        );
+
+        if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+            sendMessage(
+                    target,
+                    "📄 Файл прайса не найден.\nПоложите файл сюда:\n`" + filePath.toAbsolutePath() + "`",
+                    rows,
+                    false
+            );
+            return;
+        }
+
+        String token = api.uploadFileToken(filePath);
+        ObjectNode body = mapper.createObjectNode();
+        body.put("text", "📄 Актуальный прайс-лист");
+        body.put("format", "markdown");
+
+        ArrayNode attachments = mapper.createArrayNode();
+        ObjectNode fileAttachment = mapper.createObjectNode();
+        fileAttachment.put("type", "file");
+        ObjectNode filePayload = mapper.createObjectNode();
+        filePayload.put("token", token);
+        fileAttachment.set("payload", filePayload);
+        attachments.add(fileAttachment);
+
+        ObjectNode keyboardAttachment = mapper.createObjectNode();
+        keyboardAttachment.put("type", "inline_keyboard");
+        ObjectNode keyboardPayload = mapper.createObjectNode();
+        ArrayNode buttons = mapper.createArrayNode();
+        for (List<ObjectNode> row : rows) {
+            ArrayNode rowNode = mapper.createArrayNode();
+            rowNode.addAll(row);
+            buttons.add(rowNode);
+        }
+        keyboardPayload.set("buttons", buttons);
+        keyboardAttachment.set("payload", keyboardPayload);
+        attachments.add(keyboardAttachment);
+
+        body.set("attachments", attachments);
+        api.sendMessage(target, body);
     }
 
     private void notifyAdmins(String text) throws SQLException {

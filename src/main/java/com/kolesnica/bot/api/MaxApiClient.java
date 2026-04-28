@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.kolesnica.bot.model.ChatTarget;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
 import okhttp3.Request;
@@ -16,6 +17,8 @@ import okhttp3.ResponseBody;
 
 import java.io.IOException;
 import java.net.SocketTimeoutException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -164,6 +167,60 @@ public final class MaxApiClient {
                 throw new IOException("Ошибка GET /me: HTTP " + response.code() + " body=" + readBody(response.body()));
             }
             return mapper.readTree(readBody(response.body()));
+        }
+    }
+
+    public String uploadFileToken(Path filePath) throws IOException {
+        if (filePath == null || !Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+            throw new IOException("Файл не найден: " + filePath);
+        }
+
+        HttpUrl uploadRequestUrl = HttpUrl.parse(baseUrl + "/uploads").newBuilder()
+                .addQueryParameter("type", "file")
+                .build();
+
+        Request uploadRequest = new Request.Builder()
+                .url(uploadRequestUrl)
+                .header("Authorization", token)
+                .post(RequestBody.create("", JSON))
+                .build();
+
+        String uploadUrl;
+        try (Response response = http.newCall(uploadRequest).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Ошибка POST /uploads: HTTP " + response.code() + " body=" + readBody(response.body()));
+            }
+            JsonNode root = mapper.readTree(readBody(response.body()));
+            uploadUrl = root.path("url").asText("");
+            if (uploadUrl.isBlank()) {
+                throw new IOException("POST /uploads не вернул url");
+            }
+        }
+
+        MediaType fileMedia = MediaType.get("application/octet-stream");
+        RequestBody multipart = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("data", filePath.getFileName().toString(), RequestBody.create(filePath.toFile(), fileMedia))
+                .build();
+
+        Request fileUploadRequest = new Request.Builder()
+                .url(uploadUrl)
+                .post(multipart)
+                .build();
+
+        try (Response response = http.newCall(fileUploadRequest).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Ошибка upload file: HTTP " + response.code() + " body=" + readBody(response.body()));
+            }
+            JsonNode uploadResult = mapper.readTree(readBody(response.body()));
+            String tokenValue = uploadResult.path("token").asText("");
+            if (tokenValue.isBlank() && uploadResult.has("payload")) {
+                tokenValue = uploadResult.path("payload").path("token").asText("");
+            }
+            if (tokenValue.isBlank()) {
+                throw new IOException("Upload не вернул token: " + uploadResult);
+            }
+            return tokenValue;
         }
     }
 

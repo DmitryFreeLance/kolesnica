@@ -51,7 +51,8 @@ public final class Main {
                     users,
                     requests,
                     messageFactory,
-                    mapper
+                    mapper,
+                    config.pricePdfPath()
             );
 
             var me = api.me();
